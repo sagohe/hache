@@ -1,0 +1,5 @@
+/* admin_custom.css */
+.brand-link img {
+    height: 90px !important;  /* Puedes cambiar 90px por lo que necesites */
+    width: auto !important;
+}

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Inicio - Horarios</title>
+</head>
+<body>
+    <h1>Bienvenido al sistema de horarios</h1>
+
+    <table border="1">
+        <tr>
+            <th>Asignatura</th>
+            <th>Docente</th>
+            <th>Aula</th>
+            <th>Día</th>
+            <th>Hora Inicio</th>
+            <th>Hora Fin</th>
+        </tr>
+        {% for horario in horarios %}
+        <tr>
+            <td>{{ horario.asignatura.nombre }}</td>
+            <td>{{ horario.docente.nombre }}</td>
+            <td>{{ horario.aula.nombre }}</td>
+            <td>{{ horario.dia }}</td>
+            <td>{{ horario.hora_inicio }}</td>
+            <td>{{ horario.hora_fin }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <br>
+    <a href="/admin/">Acceso a administración</a>
+</body>
+</html>
