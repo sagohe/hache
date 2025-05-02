@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 
 from pathlib import Path
 import os
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,10 +80,10 @@ WSGI_APPLICATION = 'mi_proyecto.wsgi.application'
 
 #nuestra base de datos sqlite se llama horario_intep.db
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, "horario_intep.db"), 
-    }
+    'default': dj_database_url.config(
+        default='postgresql://bd_horario_intep_user:msyF4clCTyD9GD7KKuGNUAnGCrkPXfTi@dpg-d0ak5eruibrs73a90np0-a/bd_horario_intep',
+        conn_max_age=600
+    )
 }
 
 
