@@ -45,6 +45,8 @@
                 <th>Hora Inicio</th>
                 <th>Hora Fin</th>
                 <th>Asignatura</th>
+                <th>Semestre</th>
+                <th>Carrera</th>
                 <th>Docente</th>
                 <th>Aula</th>
                 <th>Jornada</th>
@@ -57,14 +59,17 @@
                     <td>{{ h.hora_inicio|time:"H:i" }}</td>
                     <td>{{ h.hora_fin|time:"H:i" }}</td>
                     <td class="asignatura">{{ h.asignatura.nombre }}</td>
+                    <td>{{ h.asignatura.semestre.numero }}</td>
+                    <td>{{ h.asignatura.semestre.carrera.nombre }}</td>
                     <td>{{ h.docente.nombre }}</td>
                     <td>{{ h.aula.nombre }}</td>
                     <td>{{ h.jornada }}</td>
                 </tr>
             {% empty %}
-                <tr><td colspan="7">No hay horarios generados aún.</td></tr>
+                <tr><td colspan="9">No hay horarios generados aún.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </body>
 </html>
+
