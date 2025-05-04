@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, time
 from .models import NoDisponibilidad, Horario, Asignatura
 from django.core.exceptions import ValidationError
 
+
 def obtener_bloques_por_jornada(jornada):
     bloques = {
         'Mañana': [time(7, 30), time(9, 30), time(10, 30)],
@@ -147,4 +148,3 @@ def asignar_horario_automatico(asignatura):
                     # Si hay conflicto, continúa probando otros bloques del mismo día
         # Si termina todos los bloques del día sin éxito, pasa al siguiente día
     return False
-

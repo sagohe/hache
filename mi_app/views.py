@@ -1,7 +1,7 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from .models import Horario, CarreraUniversitaria, Docente
 from django.template.loader import render_to_string
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from weasyprint import HTML, CSS
 from django.db.models import Q
 from django.core.serializers.json import DjangoJSONEncoder
@@ -16,6 +16,12 @@ from django.utils.timezone import make_aware
 import pytz
 from django.contrib.auth.decorators import login_required
 from django.urls import reverse
+
+@login_required(login_url='/admin/login/')
+def panel_inicio(request):
+    if not request.user.is_staff:
+        return HttpResponseForbidden("No tienes permiso para acceder a esta página.")
+    return render(request, 'panel_inicio.html')
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 BASE_DIR = settings.BASE_DIR

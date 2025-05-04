@@ -1,0 +1,11 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>Bienvenido al Sistema de Horarios</h1>
+<p>Desde aquí puedes acceder a tus horarios o revisar información permitida.</p>
+
+<ul>
+  <li><a href="{% url 'horario_docente' user.id %}">Ver mi horario</a></li>
+  <!-- Más opciones según permisos -->
+</ul>
+{% endblock %}
