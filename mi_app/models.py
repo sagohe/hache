@@ -2,7 +2,6 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from datetime import datetime, timedelta, time
 
-
 JORNADAS = [
     ('Mañana', 'Mañana'),
     ('Tarde', 'Tarde'),
@@ -34,9 +33,9 @@ class Docente(models.Model):
         return self.nombre
 
 class NoDisponibilidad(models.Model):
-    docente = models.ForeignKey("Docente", on_delete=models.CASCADE, related_name="no_disponibilidades")
+    docente = models.ForeignKey(Docente, on_delete=models.CASCADE, related_name="no_disponibilidades")
     dia = models.CharField(max_length=10, choices=DIAS_SEMANA)
-    jornada = models.CharField(max_length=10, choices=[('Mañana', 'Mañana'), ('Tarde', 'Tarde'), ('Noche', 'Noche')])
+    jornada = models.CharField(max_length=10, choices=JORNADAS)
     hora_inicio = models.TimeField()
     hora_fin = models.TimeField()
 
@@ -131,3 +130,4 @@ class Horario(models.Model):
 
         self.full_clean()
         super().save(*args, **kwargs)
+

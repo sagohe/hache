@@ -117,7 +117,9 @@ def asignar_horario_automatico(asignatura):
                         dia=dia,
                         hora_inicio__lt=hf_total,
                         hora_fin__gt=hi_total
-                    ).exists() or NoDisponibilidad.objects.filter(
+                    ).exists() 
+                    
+                    conflicto_disponibilidad = NoDisponibilidad.objects.filter(
                         docente=docente,
                         dia=dia,
                         jornada=jornada,
@@ -134,7 +136,7 @@ def asignar_horario_automatico(asignatura):
 
                     conflictos_estudiantes = hay_conflicto_estudiantes(asignatura, dia, hi_total, hf_total)
 
-                    if not (conflictos_docente or conflictos_aula or conflictos_estudiantes):
+                    if not (conflictos_docente or conflictos_aula or conflictos_estudiantes or conflicto_disponibilidad):
                         Horario.objects.create(
                             asignatura=asignatura,
                             docente=docente,
@@ -148,3 +150,4 @@ def asignar_horario_automatico(asignatura):
                     # Si hay conflicto, continúa probando otros bloques del mismo día
         # Si termina todos los bloques del día sin éxito, pasa al siguiente día
     return False
+#Horarios generados
