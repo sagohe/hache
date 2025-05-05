@@ -4,12 +4,12 @@ from django.core.exceptions import ValidationError
 
 
 def obtener_bloques_por_jornada(jornada):
-    bloques = {
-        'Mañana': [time(7, 30), time(9, 30), time(10, 30)],
-        'Tarde': [time(13, 30), time(15, 30), time(16, 30)],
-        'Noche': [time(18, 30), time(19, 30)],
+    rangos = {
+        'Mañana': (time(7, 30), time(12, 50)),
+        'Tarde': (time(13, 30), time(18, 15)),
+        'Noche': (time(18, 15), time(21, 45)),
     }
-    return bloques.get(jornada, [])
+    return rangos.get(jornada, (None, None))
 
 def esta_disponible(docente, jornada, dia, hora_inicio, hora_fin):
     return not NoDisponibilidad.objects.filter(
@@ -47,12 +47,29 @@ def hay_conflicto_estudiantes(asignatura, dia, hora_inicio, hora_fin):
     ).exclude(
         asignatura=asignatura
     ).exists()
+    
+def docente_esta_disponible(docente, jornada, dia, hora_inicio, hora_fin):
+    sin_no_disponibilidad = not NoDisponibilidad.objects.filter(
+        docente=docente,
+        jornada=jornada,
+        dia=dia,
+        hora_inicio__lt=hora_fin,
+        hora_fin__gt=hora_inicio
+    ).exists()
+
+    sin_otra_clase = not Horario.objects.filter(
+        docente=docente,
+        dia=dia,
+        hora_inicio__lt=hora_fin,
+        hora_fin__gt=hora_inicio
+    ).exists()
+
+    return sin_no_disponibilidad and sin_otra_clase
 
 def puede_asignar_horario(docente, aula, asignatura, dia, jornada, hora_inicio, hora_fin):
     return (
-        esta_disponible(docente, jornada, dia, hora_inicio, hora_fin) and
+        docente_esta_disponible(docente, jornada, dia, hora_inicio, hora_fin) and
         aula_disponible(aula, dia, hora_inicio, hora_fin) and
-        docente_disponible(docente, dia, hora_inicio, hora_fin) and
         hay_conflicto_estudiantes(asignatura, dia, hora_inicio, hora_fin) and
         not Horario.objects.filter(asignatura=asignatura, dia=dia).exists()
     )
@@ -72,20 +89,7 @@ def asignar_horario_automatico(asignatura):
 
     carrera = semestre.carrera
     dias_validos = list(carrera.dias_clase.values_list('nombre', flat=True))
-    intensidad = asignatura.intensidad_horaria
-
-    bloques_por_jornada = {
-        'Mañana': [('07:30', '09:30'), ('09:30', '10:30'), ('10:30', '12:30')],
-        'Tarde': [('13:30', '15:30'), ('15:30', '16:30'), ('16:30', '18:15')],
-        'Noche': [('18:15', '19:30'), ('19:30', '21:00'), ('21:00', '21:45')],
-    }
-
-    bloques = [
-        (
-            datetime.strptime(inicio, "%H:%M").time(),
-            datetime.strptime(fin, "%H:%M").time()
-        ) for inicio, fin in bloques_por_jornada.get(jornada, [])
-    ]
+    intensidad = asignatura.intensidad_horaria  # en minutos
 
     docente = asignatura.docentes.first()
     aula = asignatura.aula
@@ -93,61 +97,41 @@ def asignar_horario_automatico(asignatura):
     if not docente or not aula:
         return False
 
+    # Rangos por jornada
+    rangos_jornada = {
+        'Mañana': (time(7, 30), time(12, 50)),
+        'Tarde': (time(13, 30), time(18, 15)),
+        'Noche': (time(18, 15), time(21, 45)),
+    }
+
+    if jornada not in rangos_jornada:
+        return False
+
+    inicio_jornada, fin_jornada = rangos_jornada[jornada]
+    duracion_requerida = timedelta(minutes=intensidad)
+    bloques = 15  # tamaño del bloque en minutos
+
     for dia in dias_validos:
-        for i in range(len(bloques)):
-            duracion_acumulada = 0
-            bloques_usados = []
+        hora_actual = datetime.combine(datetime.today(), inicio_jornada)
+        hora_fin_jornada = datetime.combine(datetime.today(), fin_jornada)
 
-            for j in range(i, len(bloques)):
-                hi, hf = bloques[j]
-                duracion = (
-                    datetime.combine(datetime.today(), hf) -
-                    datetime.combine(datetime.today(), hi)
-                ).seconds // 60
+        while hora_actual + duracion_requerida <= hora_fin_jornada:
+            hora_fin = hora_actual + duracion_requerida
+            hora_inicio_time = hora_actual.time()
+            hora_fin_time = hora_fin.time()
 
-                bloques_usados.append((hi, hf))
-                duracion_acumulada += duracion
+            if puede_asignar_horario(docente, aula, asignatura, dia, jornada, hora_inicio_time, hora_fin_time):
+                Horario.objects.create(
+                    asignatura=asignatura,
+                    docente=docente,
+                    aula=aula,
+                    dia=dia,
+                    jornada=jornada,
+                    hora_inicio=hora_inicio_time,
+                    hora_fin=hora_fin_time
+                )
+                return True
 
-                if duracion_acumulada >= intensidad:
-                    hi_total = bloques_usados[0][0]
-                    hf_total = bloques_usados[-1][1]
+            hora_actual += timedelta(minutes=bloques)
 
-                    conflictos_docente = Horario.objects.filter(
-                        docente=docente,
-                        dia=dia,
-                        hora_inicio__lt=hf_total,
-                        hora_fin__gt=hi_total
-                    ).exists() 
-                    
-                    conflicto_disponibilidad = NoDisponibilidad.objects.filter(
-                        docente=docente,
-                        dia=dia,
-                        jornada=jornada,
-                        hora_inicio__lt=hf_total,
-                        hora_fin__gt=hi_total
-                    ).exists()
-
-                    conflictos_aula = Horario.objects.filter(
-                        aula=aula,
-                        dia=dia,
-                        hora_inicio__lt=hf_total,
-                        hora_fin__gt=hi_total
-                    ).exists()
-
-                    conflictos_estudiantes = hay_conflicto_estudiantes(asignatura, dia, hi_total, hf_total)
-
-                    if not (conflictos_docente or conflictos_aula or conflictos_estudiantes or conflicto_disponibilidad):
-                        Horario.objects.create(
-                            asignatura=asignatura,
-                            docente=docente,
-                            aula=aula,
-                            dia=dia,
-                            jornada=jornada,
-                            hora_inicio=hi_total,
-                            hora_fin=hf_total
-                        )
-                        return True
-                    # Si hay conflicto, continúa probando otros bloques del mismo día
-        # Si termina todos los bloques del día sin éxito, pasa al siguiente día
     return False
-#Horarios generados

@@ -5,11 +5,11 @@ from django.urls import path
 from django.db import transaction
 from django.db.models import Case, When, IntegerField
 from .models import Docente, Asignatura, NoDisponibilidad, Aula, CarreraUniversitaria, Semestre, DiaSemana, Horario, Jornadas
-from .utils import puede_asignar_horario, obtener_bloques_por_jornada, obtener_dias_disponibles_carrera
+from .utils import puede_asignar_horario, obtener_bloques_por_jornada, obtener_dias_disponibles_carrera, asignar_horario_automatico
 from datetime import datetime, timedelta, time
 from django.utils.html import format_html
 
-
+#dia de clase
 class SemestreInline(TabularInline):
     model = Semestre
     extra = 1
@@ -31,8 +31,8 @@ class AsignaturaAdmin(admin.ModelAdmin):
 
 @admin.register(DiaSemana)
 class DiaSemanaAdmin(admin.ModelAdmin):
-    list_display = ('codigo', 'nombre')
-
+    list_display = ('codigo', 'nombre', 'orden')
+    ordering = ('orden',)  # Esto asegura que se muestren ordenados
 
 class CarreraAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'mostrar_dias_clase')
@@ -41,7 +41,7 @@ class CarreraAdmin(admin.ModelAdmin):
     filter_horizontal = ('dias_clase',)
 
     def mostrar_dias_clase(self, obj):
-        return ", ".join([d.nombre for d in obj.dias_clase.all()])
+        return ", ".join([d.nombre for d in obj.dias_clase.all().order_by('orden')])
     mostrar_dias_clase.short_description = "Días de Clase"
 
 
@@ -151,50 +151,23 @@ class HorarioAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def generar_horarios(self, request):
-          # Elimina todos los horarios previos
         Horario.objects.all().delete()
-        
         asignaturas = Asignatura.objects.all()
+
+        errores = []
 
         with transaction.atomic():
             for asignatura in asignaturas:
-                minutos_disponibles = asignatura.intensidad_horaria  # intensidad en minutos
-                docente = asignatura.docentes.first()
-                jornada = asignatura.jornada
-                aula = asignatura.aula
-                semestre = asignatura.semestre
-                carrera = semestre.carrera if semestre else None
+                exito = asignar_horario_automatico(asignatura)
+                if not exito:
+                    errores.append(f"No se pudo asignar horario para la asignatura '{asignatura.nombre}'")
 
-                if not docente or not aula or not carrera:
-                    print(f"[ERROR] La asignatura '{asignatura.nombre}' no tiene docente asignado.")
-                    continue
+        if errores:
+            for e in errores:
+                messages.warning(request, e)
+        else:
+            messages.success(request, "¡Horarios generados exitosamente!")
 
-                bloques = obtener_bloques_por_jornada(jornada)
-                dias_disponibles = obtener_dias_disponibles_carrera(carrera)
-
-                for dia in dias_disponibles:
-                    if minutos_disponibles <= 0:
-                        break
-
-                    for hora_inicio in bloques:
-                        duracion_bloque = min(minutos_disponibles, 300)  # intenta bloques de 300 minutos, o lo que quede
-                        hora_fin = (datetime.combine(datetime.today(), hora_inicio) + timedelta(minutes=duracion_bloque)).time()
-
-                        if puede_asignar_horario(docente, aula, asignatura, dia, jornada, hora_inicio, hora_fin):
-                            Horario.objects.create(
-                                asignatura=asignatura,
-                                docente=docente,
-                                aula=aula,
-                                dia=dia,
-                                jornada=jornada,
-                                hora_inicio=hora_inicio,
-                                hora_fin=hora_fin
-                            )
-                            minutos_disponibles -= duracion_bloque
-                            if minutos_disponibles <= 0:
-                                break
-
-        messages.success(request, "¡Horarios generados exitosamente!")
         return redirect("..")
 
 

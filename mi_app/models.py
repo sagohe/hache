@@ -41,8 +41,7 @@ class NoDisponibilidad(models.Model):
 
     def __str__(self):
         return f"{self.docente.nombre} NO disponible - {self.dia} ({self.jornada} {self.hora_inicio}-{self.hora_fin})"
-    class Meta:
-        unique_together = ('docente', 'dia', 'hora_inicio', 'hora_fin')
+
 
 class Aula(models.Model):
     nombre = models.CharField(max_length=100, unique=True)
@@ -53,6 +52,10 @@ class Aula(models.Model):
 class DiaSemana(models.Model):
     codigo = models.CharField(max_length=2, unique=True)
     nombre = models.CharField(max_length=20)
+    orden = models.PositiveIntegerField(default=0)  # nuevo campo
+
+    class Meta:
+        ordering = ['orden']  # Django usará esto al hacer .all()
 
     def __str__(self):
         return self.nombre
