@@ -1,6 +1,6 @@
 from django.db import models
 from django.core.exceptions import ValidationError
-from datetime import datetime, timedelta, time
+from datetime import time
 
 JORNADAS = [
     ('Mañana', 'Mañana'),

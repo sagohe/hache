@@ -4,9 +4,8 @@ from django.shortcuts import redirect
 from django.urls import path
 from django.db import transaction
 from django.db.models import Case, When, IntegerField
-from .models import Docente, Asignatura, NoDisponibilidad, Aula, CarreraUniversitaria, Semestre, DiaSemana, Horario, Jornadas
+from .models import Docente, Asignatura, NoDisponibilidad, Aula, CarreraUniversitaria, Semestre, DiaSemana, Horario
 from .utils import asignar_horario_automatico
-from datetime import datetime, timedelta, time
 from django.utils.html import format_html
 
 #dia de clase

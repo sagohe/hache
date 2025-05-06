@@ -240,11 +240,31 @@ def ver_horarios(request):
         "request": request
     })
 
+def horario_docente(request, docente_id):
+    docente = get_object_or_404(Docente, id=docente_id)
+    horarios = Horario.objects.filter(docente=docente).select_related(
+        'asignatura__semestre__carrera', 
+        'aula'
+    ).order_by('dia', 'hora_inicio')
+
+    horarios_por_dia = {}
+    for horario in horarios:
+        if horario.dia not in horarios_por_dia:
+            horarios_por_dia[horario.dia] = []
+        horarios_por_dia[horario.dia].append(horario)
+
+    context = {
+        'docente': docente,
+        'horarios_por_dia': horarios_por_dia,
+    }
+    return render(request, 'admin/mi_app/horario_docente.html', context)
 
 # Exportar todos los horarios a PDF con filtros
-def exportar_horarios_pdf(request, docente_id):
-    # Filtrar los horarios del docente específico
-    queryset = Horario.objects.select_related("asignatura", "docente", "aula").filter(docente_id=docente_id)
+def exportar_horarios_pdf(request, docente_id=None):
+    queryset = Horario.objects.select_related("asignatura", "docente", "aula")
+
+    if docente_id:
+        queryset = queryset.filter(docente_id=docente_id)
 
     filters = {}
     for key in request.GET:
@@ -268,37 +288,10 @@ def exportar_horarios_pdf(request, docente_id):
         )
 
     horarios = queryset.order_by("dia", "hora_inicio")
-    
-    # Crear el HTML para el PDF
-    html_string = render_to_string("pdf_horarios.html", {"horarios": horarios})
 
-    # Generar el PDF con WeasyPrint
+    html_string = render_to_string("pdf_horarios.html", {"horarios": horarios})
     pdf = HTML(string=html_string).write_pdf(stylesheets=[CSS(string='@page { size: 297mm 210mm; margin: 1cm; }')])
 
-    # Crear la respuesta HTTP con el PDF
     response = HttpResponse(pdf, content_type="application/pdf")
     response["Content-Disposition"] = "inline; filename=horarios_filtrados.pdf"
     return response
-
-# Vista clásica de horario del docente, agrupado por día
-def horario_docente(request, docente_id):
-    docente = get_object_or_404(Docente, id=docente_id)
-    
-    # Optimización de consultas con select_related
-    horarios = Horario.objects.filter(docente=docente).select_related(
-        'asignatura__semestre__carrera', 
-        'aula'
-    ).order_by('dia', 'hora_inicio')
-
-    # Estructura para agrupar por día (vista clásica)
-    horarios_por_dia = {}
-    for horario in horarios:
-        if horario.dia not in horarios_por_dia:
-            horarios_por_dia[horario.dia] = []
-        horarios_por_dia[horario.dia].append(horario)
-
-    context = {
-        'docente': docente,
-        'horarios_por_dia': horarios_por_dia,
-    }
-    return render(request, 'admin/mi_app/horario_docente.html', context)
