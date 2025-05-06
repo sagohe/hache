@@ -5,7 +5,7 @@ from django.urls import path
 from django.db import transaction
 from django.db.models import Case, When, IntegerField
 from .models import Docente, Asignatura, NoDisponibilidad, Aula, CarreraUniversitaria, Semestre, DiaSemana, Horario, Jornadas
-from .utils import puede_asignar_horario, obtener_bloques_por_jornada, obtener_dias_disponibles_carrera, asignar_horario_automatico
+from .utils import asignar_horario_automatico
 from datetime import datetime, timedelta, time
 from django.utils.html import format_html
 

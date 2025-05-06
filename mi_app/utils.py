@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, time
-from .models import NoDisponibilidad, Horario, Asignatura
-from django.core.exceptions import ValidationError
+from .models import NoDisponibilidad, Horario, Aula
 
 
 def obtener_bloques_por_jornada(jornada):
@@ -92,9 +91,8 @@ def asignar_horario_automatico(asignatura):
     intensidad = asignatura.intensidad_horaria  # en minutos
 
     docente = asignatura.docentes.first()
-    aula = asignatura.aula
 
-    if not docente or not aula:
+    if not docente:
         return False
 
     # Rangos por jornada
@@ -120,11 +118,24 @@ def asignar_horario_automatico(asignatura):
             hora_inicio_time = hora_actual.time()
             hora_fin_time = hora_fin.time()
 
-            if puede_asignar_horario(docente, aula, asignatura, dia, jornada, hora_inicio_time, hora_fin_time):
+            aula_asignada = asignatura.aula
+
+            # Si no tiene aula asignada, buscar una disponible
+            if not aula_asignada:
+                aulas_disponibles = Aula.objects.all()
+                for aula in aulas_disponibles:
+                    if puede_asignar_horario(docente, aula, asignatura, dia, jornada, hora_inicio_time, hora_fin_time):
+                        aula_asignada = aula
+                        break
+            else:
+                if not puede_asignar_horario(docente, aula_asignada, asignatura, dia, jornada, hora_inicio_time, hora_fin_time):
+                    aula_asignada = None
+
+            if aula_asignada:
                 Horario.objects.create(
                     asignatura=asignatura,
                     docente=docente,
-                    aula=aula,
+                    aula=aula_asignada,
                     dia=dia,
                     jornada=jornada,
                     hora_inicio=hora_inicio_time,
