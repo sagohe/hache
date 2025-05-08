@@ -11,10 +11,10 @@ JORNADAS = [
 DIAS_SEMANA = [
     ('Lunes', 'Lunes'),
     ('Martes', 'Martes'),
-    ('Miércoles', 'Miércoles'),
+    ('Miercoles', 'Miercoles'),
     ('Jueves', 'Jueves'),
     ('Viernes', 'Viernes'),
-    ('Sábado', 'Sábado'),
+    ('Sabado', 'Sa|bado'),
     ('Domingo', 'Domingo'),
 ]
 
