@@ -10,67 +10,41 @@ def obtener_bloques_por_jornada(jornada):
     }
     return rangos.get(jornada, (None, None))
 
-def esta_disponible(docente, jornada, dia, hora_inicio, hora_fin):
-    return not NoDisponibilidad.objects.filter(
-        docente=docente,
-        jornada=jornada,
-        dia=dia,
-        hora_inicio__lt=hora_fin,
-        hora_fin__gt=hora_inicio
-    ).exists()
+def aula_disponible_en_memoria(aula, dia, hora_inicio, hora_fin, horarios):
+    for h in horarios:
+        if h.aula == aula and h.dia == dia and h.hora_inicio < hora_fin and h.hora_fin > hora_inicio:
+            return False
+    return True
 
-def aula_disponible(aula, dia, hora_inicio, hora_fin):
-    return not Horario.objects.filter(
-        aula=aula,
-        dia=dia,
-        hora_inicio__lt=hora_fin,
-        hora_fin__gt=hora_inicio
-    ).exists()
+def hay_conflicto_estudiantes_mem(asignatura, dia, hora_inicio, hora_fin, horarios):
+    for h in horarios:
+        if (
+            h.asignatura.semestre == asignatura.semestre and
+            h.asignatura != asignatura and
+            h.dia == dia and
+            h.jornada == asignatura.jornada and
+            h.hora_inicio < hora_fin and
+            h.hora_fin > hora_inicio
+        ):
+            return True
+    return False
 
-def docente_disponible(docente, dia, hora_inicio, hora_fin):
-    return not Horario.objects.filter(
-        docente=docente,
-        dia=dia,
-        hora_inicio__lt=hora_fin,
-        hora_fin__gt=hora_inicio
-    ).exists()
+def docente_esta_disponible_mem(docente, jornada, dia, hora_inicio, hora_fin, horarios, no_disponibilidades):
+    for nd in no_disponibilidades:
+        if nd.docente == docente and nd.dia == dia and nd.jornada == jornada and nd.hora_inicio < hora_fin and nd.hora_fin > hora_inicio:
+            return False
+    for h in horarios:
+        if h.docente == docente and h.dia == dia and h.hora_inicio < hora_fin and h.hora_fin > hora_inicio:
+            return False
+    return True
 
-def hay_conflicto_estudiantes(asignatura, dia, hora_inicio, hora_fin):
-    return not Horario.objects.filter(
-        asignatura__semestre=asignatura.semestre,
-        asignatura__semestre__carrera=asignatura.semestre.carrera,
-        jornada=asignatura.jornada,
-        dia=dia,
-        hora_inicio__lt=hora_fin,
-        hora_fin__gt=hora_inicio
-    ).exclude(
-        asignatura=asignatura
-    ).exists()
-    
-def docente_esta_disponible(docente, jornada, dia, hora_inicio, hora_fin):
-    sin_no_disponibilidad = not NoDisponibilidad.objects.filter(
-        docente=docente,
-        jornada=jornada,
-        dia=dia,
-        hora_inicio__lt=hora_fin,
-        hora_fin__gt=hora_inicio
-    ).exists()
 
-    sin_otra_clase = not Horario.objects.filter(
-        docente=docente,
-        dia=dia,
-        hora_inicio__lt=hora_fin,
-        hora_fin__gt=hora_inicio
-    ).exists()
-
-    return sin_no_disponibilidad and sin_otra_clase
-
-def puede_asignar_horario(docente, aula, asignatura, dia, jornada, hora_inicio, hora_fin):
+def puede_asignar_horario_mem(docente, aula, asignatura, dia, jornada, hora_inicio, hora_fin, horarios, no_disponibilidades):
     return (
-        docente_esta_disponible(docente, jornada, dia, hora_inicio, hora_fin) and
-        aula_disponible(aula, dia, hora_inicio, hora_fin) and
-        hay_conflicto_estudiantes(asignatura, dia, hora_inicio, hora_fin) and
-        not Horario.objects.filter(asignatura=asignatura, dia=dia).exists()
+        docente_esta_disponible_mem(docente, jornada, dia, hora_inicio, hora_fin, horarios, no_disponibilidades) and
+        aula_disponible_en_memoria(aula, dia, hora_inicio, hora_fin, horarios) and
+        not hay_conflicto_estudiantes_mem(asignatura, dia, hora_inicio, hora_fin, horarios) and
+        all(h.asignatura != asignatura or h.dia != dia for h in horarios)
     )
 
 def obtener_dias_disponibles_carrera(carrera):
@@ -79,7 +53,8 @@ def obtener_dias_disponibles_carrera(carrera):
     """
     return list(carrera.dias_clase.values_list('nombre', flat=True))
 
-def asignar_horario_automatico(asignatura):
+def asignar_horario_automatico(asignatura, horarios, no_disponibilidades):
+    # ... misma lógica que tienes ...
     jornada = asignatura.jornada
     semestre = asignatura.semestre
 
@@ -108,7 +83,7 @@ def asignar_horario_automatico(asignatura):
     inicio_jornada, fin_jornada = rangos_jornada[jornada]
     duracion_requerida = timedelta(minutes=intensidad)
     bloques = 15  # tamaño del bloque en minutos
-
+    
     for dia in dias_validos:
         hora_actual = datetime.combine(datetime.today(), inicio_jornada)
         hora_fin_jornada = datetime.combine(datetime.today(), fin_jornada)
@@ -120,19 +95,17 @@ def asignar_horario_automatico(asignatura):
 
             aula_asignada = asignatura.aula
 
-            # Si no tiene aula asignada, buscar una disponible
             if not aula_asignada:
-                aulas_disponibles = Aula.objects.all()
-                for aula in aulas_disponibles:
-                    if puede_asignar_horario(docente, aula, asignatura, dia, jornada, hora_inicio_time, hora_fin_time):
+                for aula in Aula.objects.all():
+                    if puede_asignar_horario_mem(docente, aula, asignatura, dia, jornada, hora_inicio_time, hora_fin_time, horarios, no_disponibilidades):
                         aula_asignada = aula
                         break
             else:
-                if not puede_asignar_horario(docente, aula_asignada, asignatura, dia, jornada, hora_inicio_time, hora_fin_time):
+                if not puede_asignar_horario_mem(docente, aula_asignada, asignatura, dia, jornada, hora_inicio_time, hora_fin_time, horarios, no_disponibilidades):
                     aula_asignada = None
 
             if aula_asignada:
-                Horario.objects.create(
+                nuevo_horario = Horario(
                     asignatura=asignatura,
                     docente=docente,
                     aula=aula_asignada,
@@ -141,6 +114,8 @@ def asignar_horario_automatico(asignatura):
                     hora_inicio=hora_inicio_time,
                     hora_fin=hora_fin_time
                 )
+                nuevo_horario.save()
+                horarios.append(nuevo_horario)  # ⚠️ Actualizamos la lista para los siguientes cálculos
                 return True
 
             hora_actual += timedelta(minutes=bloques)

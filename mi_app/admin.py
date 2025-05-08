@@ -151,13 +151,26 @@ class HorarioAdmin(admin.ModelAdmin):
 
     def generar_horarios(self, request):
         Horario.objects.all().delete()
-        asignaturas = Asignatura.objects.all()
+        asignaturas = Asignatura.objects.select_related(
+            'semestre__carrera', 'aula'
+        ).prefetch_related('docentes').all()
 
         errores = []
 
+        # ✅ Paso 1: precargar datos en memoria
+        todos_los_horarios = list(Horario.objects.select_related(
+            'docente', 'aula', 'asignatura__semestre__carrera'
+        ))
+
+        todas_las_no_disponibilidades = list(NoDisponibilidad.objects.select_related('docente'))
+
         with transaction.atomic():
             for asignatura in asignaturas:
-                exito = asignar_horario_automatico(asignatura)
+                exito = asignar_horario_automatico(
+                    asignatura,
+                    todos_los_horarios,
+                    todas_las_no_disponibilidades
+                )
                 if not exito:
                     errores.append(f"No se pudo asignar horario para la asignatura '{asignatura.nombre}'")
 
@@ -168,6 +181,5 @@ class HorarioAdmin(admin.ModelAdmin):
             messages.success(request, "¡Horarios generados exitosamente!")
 
         return redirect("..")
-
 
 admin.site.register(Horario, HorarioAdmin)
