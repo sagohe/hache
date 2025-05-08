@@ -77,11 +77,7 @@
         <a href="{% url 'exportar_horarios_pdf' docente.id %}" class="export-btn">
             Exportar a PDF
         </a>
- <!--
-        <a href="{% url 'autorizar_google' docente_id=docente.id %}" class="export-btn" style="background-color: #1a73e8;">
-            Sincronizar con Google Calendar
-        </a>
- -->    
+
         {% if horarios_por_dia %}
             {% for dia, horarios in horarios_por_dia.items %}
                 <div class="horario-card">
