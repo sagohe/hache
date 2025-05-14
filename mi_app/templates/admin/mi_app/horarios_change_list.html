@@ -1,0 +1,67 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools %}
+    {{ block.super }}
+    <li>
+        <a href="{% url 'exportar_horarios_pdf' %}" class="button" style="background-color: #28a745; color: white;">
+            🧾 Exportar a PDF
+        </a>
+    </li>
+{% endblock %}
+
+{% block result_list %}
+    <style>
+        .day-header {
+            font-size: 20px;
+            font-weight: bold;
+            background: #d9edf7;
+            padding: 8px;
+            margin-top: 15px;
+            border-radius: 5px;
+        }
+        .horario-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .horario-table th, .horario-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .horario-table th {
+            background-color: #f4f4f4;
+        }
+    </style>
+
+    {% regroup cl.result_list by dia as horarios_por_dia %}
+
+    {% for dia in horarios_por_dia %}
+        <div class="day-header">{{ dia.grouper }}</div>
+
+        <table class="horario-table">
+            <thead>
+                <tr>
+                    <th>Asignatura</th>
+                    <th>Docente</th>
+                    <th>Aula</th>
+                    <th>Hora Inicio</th>
+                    <th>Hora Fin</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for horario in dia.list %}
+                    <tr>
+                        <td>{{ horario.asignatura.nombre }}</td>
+                        <td>{{ horario.docente.nombre }}</td>
+                        <td>{{ horario.aula.nombre }}</td>
+                        <td>{{ horario.hora_inicio|time:"H:i" }}</td>
+                        <td>{{ horario.hora_fin|time:"H:i" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endfor %}
+{% endblock %}
+
+

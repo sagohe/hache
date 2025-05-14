@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horario de {{ docente.nombre }}</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #007bff;
+            margin-bottom: 30px;
+        }
+
+        .export-btn {
+            display: block;
+            width: fit-content;
+            margin: 0 auto 20px auto;
+            background-color: #28a745;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .horario-card {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .horario-card h3 {
+            margin: 0 0 10px;
+            font-size: 1.3em;
+            color: #007bff;
+        }
+
+        .horario-card p {
+            margin: 5px 0;
+            font-size: 1em;
+            color: #555;
+        }
+
+        .empty-message {
+            text-align: center;
+            font-size: 1.2em;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Horario de {{ docente.nombre }}</h1>
+    
+        <a href="{% url 'exportar_horarios_pdf' docente.id %}" class="export-btn">
+            Exportar a PDF
+        </a>
+
+        {% if horarios_por_dia %}
+            {% for dia, horarios in horarios_por_dia.items %}
+                <div class="horario-card">
+                    <h3>{{ dia }}</h3>
+    
+                    {% if fechas_formateadas %}
+                        <p><strong>Fecha:</strong> {{ fechas_formateadas }}</p>
+                    {% endif %}
+    
+                    {% for h in horarios %}
+                        <p><strong>Hora:</strong> {{ h.hora_inicio|time:"H:i" }} a {{ h.hora_fin|time:"H:i" }}</p>
+                        <p><strong>Asignatura:</strong> {{ h.asignatura.nombre }}</p>
+                        <p><strong>Carrera:</strong> {{ h.asignatura.semestre.carrera.nombre }}</p>
+                        <p><strong>Semestre:</strong> {{ h.asignatura.semestre.numero }}</p>
+                        <p><strong>Aula:</strong> {{ h.aula.nombre }}</p>
+                        {% if not forloop.last %}<hr>{% endif %}
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-message">
+                Este docente no tiene clases asignadas.
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

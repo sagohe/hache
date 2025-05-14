@@ -1,0 +1,64 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<style>
+  .inicio-horarios {
+    background: #f4f6f9;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    text-align: center;
+    font-family: "Segoe UI", sans-serif;
+  }
+
+  .inicio-horarios h1 {
+    font-size: 2.2rem;
+    margin-bottom: 1rem;
+    color: #2c3e50;
+  }
+
+  .inicio-horarios .resaltado {
+    color: #007acc;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+
+  .inicio-horarios p {
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+    color: #555;
+  }
+
+  .inicio-horarios ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .inicio-horarios li {
+    margin: 1rem 0;
+  }
+
+  .inicio-horarios a {
+    background-color: #000000;
+    color: rgb(1, 12, 163);
+    padding: 0.6rem 1.2rem;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: background-color 0.3s ease;
+  }
+
+  .inicio-horarios a:hover {
+    background-color: #065f92;
+  }
+</style>
+
+<div class="inicio-horarios">
+  <h1>Bienvenido al Sistema de Horarios <span class="resaltado">HACHE</span></h1>
+  <p>Desde aquí puedes acceder a tus horarios o revisar la información permitida según tu rol.</p>
+
+  <ul>
+    <li><a href="{% url 'admin:index' %}">Ir al Panel de Control</a></li>
+    <!-- Más opciones según permisos -->
+  </ul>
+</div>
+{% endblock %}

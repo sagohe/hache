@@ -1,0 +1,8 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block branding %}
+    <a href="{% url 'admin:index' %}" class="branding-link">
+        <img src="{% static 'mi_app/img/logo.png' %}" alt="Logo" height="50">
+    </a>
+{% endblock %}

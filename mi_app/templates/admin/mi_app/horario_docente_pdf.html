@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Horario de {{ docente.nombre }}</title>
+</head>
+<body>
+    <h2>Horario del docente: {{ docente.nombre }}</h2>
+    <table border="1" cellspacing="0" cellpadding="5">
+        <thead>
+            <tr>
+                <th>Día</th>
+                <th>Hora Inicio</th>
+                <th>Hora Fin</th>
+                <th>Asignatura</th>
+                <th>Semestre</th>
+                <th>Carrera</th>
+                <th>Aula</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for horario in horarios %}
+                <tr>
+                    <td>{{ horario.dia }}</td>
+                    <td>{{ horario.hora_inicio }}</td>
+                    <td>{{ horario.hora_fin }}</td>
+                    <td>{{ horario.asignatura.nombre }}</td>
+                    <td>{{ horario.asignatura.semestre.numero }}</td>
+                    <td>{{ horario.asignatura.semestre.carrera.nombre }}</td>
+                    <td>{{ horario.aula.nombre }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="7">No hay horarios asignados.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horario de Clases</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Horario de Clases</h1>
+
+    <!-- Selector de Carrera -->
+    <form method="GET">
+        <label for="carrera">Selecciona una carrera:</label>
+        <select name="carrera" id="carrera" onchange="this.form.submit()">
+            <option value="">Todas</option>
+            {% for carrera in carreras_disponibles %}
+                <option value="{{ carrera.id }}" {% if carrera.id|stringformat:"s" == request.GET.carrera %}selected{% endif %}>
+                    {{ carrera.nombre }}
+                </option>
+            {% endfor %}
+        </select>
+    </form>
+
+    {% for dia, horarios in horarios_por_dia.items %}
+        <h2>{{ dia }}</h2>
+        <table>
+            <tr>
+                <th>Hora Inicio</th>
+                <th>Hora Fin</th>
+                <th>Asignatura</th>
+                <th>Docente</th>
+                <th>Aula</th>
+            </tr>
+            {% for horario in horarios %}
+            <tr>
+                <td>{{ horario.hora_inicio }}</td>
+                <td>{{ horario.hora_fin }}</td>
+                <td>{{ horario.asignatura.nombre }}</td>
+                <td>{{ horario.docente.nombre }}</td>
+                <td>{{ horario.aula.nombre }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% endfor %}
+</body>
+</html>
+

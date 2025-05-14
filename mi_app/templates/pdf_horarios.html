@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Horarios</title>
+    <style>
+        body {
+            font-family: "Helvetica", sans-serif;
+            margin: 40px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 28px;
+            color: #2c3e50;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 25px;
+        }
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ccc;
+            text-align: center;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .asignatura {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <h1>Horarios Generados</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Día</th>
+                <th>Hora Inicio</th>
+                <th>Hora Fin</th>
+                <th>Asignatura</th>
+                <th>Semestre</th>
+                <th>Carrera</th>
+                <th>Docente</th>
+                <th>Aula</th>
+                <th>Jornada</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for h in horarios %}
+                <tr>
+                    <td>{{ h.dia }}</td>
+                    <td>{{ h.hora_inicio|time:"H:i" }}</td>
+                    <td>{{ h.hora_fin|time:"H:i" }}</td>
+                    <td class="asignatura">{{ h.asignatura.nombre }}</td>
+                    <td>{{ h.asignatura.semestre.numero }}</td>
+                    <td>{{ h.asignatura.semestre.carrera.nombre }}</td>
+                    <td>{{ h.docente.nombre }}</td>
+                    <td>{{ h.aula.nombre }}</td>
+                    <td>{{ h.jornada }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="9">No hay horarios generados aún.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+
