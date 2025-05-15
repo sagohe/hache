@@ -31,11 +31,24 @@ def hay_conflicto_estudiantes_mem(asignatura, dia, hora_inicio, hora_fin, horari
 
 def docente_esta_disponible_mem(docente, jornada, dia, hora_inicio, hora_fin, horarios, no_disponibilidades):
     for nd in no_disponibilidades:
-        if nd.docente == docente and nd.dia == dia and nd.jornada == jornada and nd.hora_inicio < hora_fin and nd.hora_fin > hora_inicio:
+        if (
+            nd.docente == docente and 
+            nd.dia == dia.nombre and  # ✅ comparar con el nombre del día
+            nd.jornada == jornada and 
+            nd.hora_inicio < hora_fin and 
+            nd.hora_fin > hora_inicio
+        ):
             return False
+
     for h in horarios:
-        if h.docente == docente and h.dia == dia and h.hora_inicio < hora_fin and h.hora_fin > hora_inicio:
+        if (
+            h.docente == docente and 
+            h.dia == dia and  # aquí sí está bien porque ambos son instancias de DiaSemana
+            h.hora_inicio < hora_fin and 
+            h.hora_fin > hora_inicio
+        ):
             return False
+
     return True
 
 
