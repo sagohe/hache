@@ -3,9 +3,7 @@
 {% block object-tools %}
     {{ block.super }}
     <li>
-        <a href="{% url 'exportar_horarios_pdf' %}" class="button" style="background-color: #28a745; color: white;">
-            🧾 Exportar a PDF
-        </a>
+        <a href="{% url 'exportar_horarios_pdf' %}?{{ request.GET.urlencode }}" class="button">Exportar PDF</a>
     </li>
 {% endblock %}
 

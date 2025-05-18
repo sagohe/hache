@@ -221,4 +221,3 @@ class HorarioAdmin(admin.ModelAdmin):
         return redirect("..")
 
 admin.site.register(Horario, HorarioAdmin)
-#asignaturas

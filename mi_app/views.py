@@ -5,7 +5,10 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, HttpResponseForbidden
 from weasyprint import HTML, CSS
 from django.db.models import Q
-
+from .admin import HorarioAdmin
+from django.contrib.admin.sites import site
+from django.template.loader import get_template
+from django.contrib.admin.views.main import ChangeList
 
 @login_required(login_url='/admin/login/')
 def panel_inicio(request):
@@ -92,38 +95,26 @@ def horario_docente(request, docente_id):
     return render(request, 'admin/mi_app/horario_docente.html', context)
 
 # Exportar todos los horarios a PDF con filtros
-def exportar_horarios_pdf(request, docente_id=None):
-    queryset = Horario.objects.select_related("asignatura", "docente", "aula")
+def exportar_horarios_pdf(request):
+    model = Horario
+    admin_class = HorarioAdmin(model, site)
 
-    if docente_id:
-        queryset = queryset.filter(docente_id=docente_id)
+    cl = ChangeList(
+        request, model, admin_class.list_display, admin_class.list_display_links,
+        admin_class.list_filter, admin_class.date_hierarchy, admin_class.search_fields,
+        admin_class.list_select_related, admin_class.list_per_page,
+        admin_class.list_max_show_all, admin_class.list_editable, admin_class,
+        sortable_by=admin_class.get_sortable_by(request),
+        search_help_text=getattr(admin_class, 'search_help_text', None)
+    )
 
-    filters = {}
-    for key in request.GET:
-        if key == "q":
-            continue
-        value = request.GET.get(key)
-        if value:
-            filters[key] = value
+    queryset = cl.get_queryset(request).order_by('dia', 'hora_inicio')
 
-    try:
-        queryset = queryset.filter(**filters)
-    except Exception as e:
-        return HttpResponse(f"Error al aplicar filtros: {e}", status=500)
+    template = get_template("pdf_horarios.html")
+    html_string = template.render({"horarios": queryset})  # Aquí paso 'horarios' directamente
 
-    q = request.GET.get("q")
-    if q:
-        queryset = queryset.filter(
-            Q(asignatura__nombre__icontains=q) |
-            Q(docente__nombre__icontains=q) |
-            Q(aula__nombre__icontains=q)
-        )
+    pdf_file = HTML(string=html_string).write_pdf()
 
-    horarios = queryset.order_by("dia", "hora_inicio")
-
-    html_string = render_to_string("pdf_horarios.html", {"horarios": horarios})
-    pdf = HTML(string=html_string).write_pdf(stylesheets=[CSS(string='@page { size: 297mm 210mm; margin: 1cm; }')])
-
-    response = HttpResponse(pdf, content_type="application/pdf")
-    response["Content-Disposition"] = "inline; filename=horarios_filtrados.pdf"
+    response = HttpResponse(pdf_file, content_type='application/pdf')
+    response['Content-Disposition'] = 'attachment; filename="horarios_filtrados.pdf"'
     return response
