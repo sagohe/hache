@@ -7,14 +7,29 @@ from django.db.models import Case, When, IntegerField, Value
 from .models import Docente, Asignatura, NoDisponibilidad, Aula, CarreraUniversitaria, Semestre, DiaSemana, Horario
 from .utils import asignar_horario_automatico
 from django.utils.html import format_html
+from django import forms
 
 #dia de clase
 class SemestreInline(TabularInline):
     model = Semestre
     extra = 1
+    
+class AsignaturaForm(forms.ModelForm):
+    class Meta:
+        model = Asignatura
+        fields = '__all__'
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'semestre' in self.fields:
+            widget = self.fields['semestre'].widget
+            widget.can_add_related = False
+            widget.can_change_related = False
+            widget.can_view_related = False
 
 class AsignaturaAdmin(admin.ModelAdmin):
+    form = AsignaturaForm  # ← aquí aplicamos el form personalizado
+
     list_display = ('nombre', 'semestre', 'mostrar_docentes', 'aula', 'mostrar_jornadas', 'intensidad_horaria')
     list_filter = ('semestre__carrera', 'docentes', 'semestre', 'jornada')
     search_fields = ('nombre', 'semestre__numero', 'docentes__nombre')
@@ -24,10 +39,10 @@ class AsignaturaAdmin(admin.ModelAdmin):
     mostrar_docentes.short_description = "Docentes"
 
     def mostrar_jornadas(self, obj):
-        return obj.jornada  # Es un campo de texto, no una relación
-
+        return obj.jornada
     mostrar_jornadas.short_description = "Jornada"
-
+    
+    
 @admin.register(DiaSemana)
 class DiaSemanaAdmin(admin.ModelAdmin):
     list_display = ('codigo', 'nombre', 'orden')
@@ -196,3 +211,4 @@ class HorarioAdmin(admin.ModelAdmin):
         return redirect("..")
 
 admin.site.register(Horario, HorarioAdmin)
+#asignaturas

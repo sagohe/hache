@@ -82,7 +82,6 @@ class Asignatura(models.Model):
     jornada = models.CharField(max_length=10, choices=JORNADAS, default='Mañana')
     intensidad_horaria = models.PositiveIntegerField(default=90)
     semestre = models.ForeignKey(Semestre, on_delete=models.CASCADE, null=True, blank=True)
-    dia = models.ForeignKey(DiaSemana, on_delete=models.SET_NULL, null=True, blank=True)
 
     def get_intensidad_horas(self):
         return f"{self.intensidad_horaria / 60:.1f} horas"
