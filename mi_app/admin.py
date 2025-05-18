@@ -8,6 +8,7 @@ from .models import Docente, Asignatura, NoDisponibilidad, Aula, CarreraUniversi
 from .utils import asignar_horario_automatico
 from django.utils.html import format_html
 from django import forms
+#admin.site.register(Asignatura)
 
 #dia de clase
 class SemestreInline(TabularInline):
@@ -21,21 +22,30 @@ class AsignaturaForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if 'semestre' in self.fields:
-            widget = self.fields['semestre'].widget
-            widget.can_add_related = False
-            widget.can_change_related = False
-            widget.can_view_related = False
-
+        for field in ('semestre', 'aula'):
+            if field in self.fields:
+                widget = self.fields[field].widget
+                for attr in (
+                    'can_add_related',
+                    'can_change_related',
+                    'can_view_related',
+                    'can_delete_related',  # ✅ Esta es la que faltaba
+                ):
+                    setattr(widget, attr, False)
 class AsignaturaAdmin(admin.ModelAdmin):
-    form = AsignaturaForm  # ← aquí aplicamos el form personalizado
+    form = AsignaturaForm
 
     list_display = ('nombre', 'semestre', 'mostrar_docentes', 'aula', 'mostrar_jornadas', 'intensidad_horaria')
     list_filter = ('semestre__carrera', 'docentes', 'semestre', 'jornada')
     search_fields = ('nombre', 'semestre__numero', 'docentes__nombre')
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.prefetch_related('docentes', 'semestre', 'aula')
+
 
     def mostrar_docentes(self, obj):
-        return ", ".join([docente.nombre for docente in obj.docentes.all()])
+        return ", ".join(docente.nombre for docente in obj.docentes.all())
     mostrar_docentes.short_description = "Docentes"
 
     def mostrar_jornadas(self, obj):
