@@ -84,7 +84,7 @@ WSGI_APPLICATION = 'mi_proyecto.wsgi.application'
 #nuestra base de datos sqlite se llama horario_intep.db
 DATABASES = {
     'default': dj_database_url.config(
-        default='postgresql://bd_horario_intep_user:msyF4clCTyD9GD7KKuGNUAnGCrkPXfTi@dpg-d0ak5eruibrs73a90np0-a.oregon-postgres.render.com/bd_horario_intep',
+        default='postgresql://db_hache_user:7HMjtPgOxiIlGGebw0RqivSQSGaf8zml@dpg-d1mq5iffte5s73akv120-a.oregon-postgres.render.com/db_hache',
         conn_max_age=600
     )
 }
