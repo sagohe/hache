@@ -33,7 +33,7 @@ def docente_esta_disponible_mem(docente, jornada, dia, hora_inicio, hora_fin, ho
     for nd in no_disponibilidades:
         if (
             nd.docente == docente and 
-            nd.dia == dia.nombre and  # ✅ comparar con el nombre del día
+            nd.dia == dia.nombre and  #  comparar con el nombre del día
             nd.jornada == jornada and 
             nd.hora_inicio < hora_fin and 
             nd.hora_fin > hora_inicio
@@ -128,11 +128,11 @@ def asignar_horario_automatico(asignatura, horarios, no_disponibilidades):
                     hora_fin=hora_fin_time
                 )
                 horarios_para_guardar.append(nuevo_horario)
-                # ✅ Solo se crea uno, salimos de los bucles
+                # Solo se crea uno, salimos de los bucles
                 Horario.objects.bulk_create(horarios_para_guardar)
                 horarios.extend(horarios_para_guardar)
-                return True  # asignación exitosa
+                return True 
 
             hora_actual += timedelta(minutes=bloques)
 
-    return False  # No se pudo asignar
+    return False 

@@ -29,7 +29,7 @@ class AsignaturaForm(forms.ModelForm):
                     'can_add_related',
                     'can_change_related',
                     'can_view_related',
-                    'can_delete_related',  # ✅ Esta es la que faltaba
+                    'can_delete_related', 
                 ):
                     setattr(widget, attr, False)
 class AsignaturaAdmin(admin.ModelAdmin):
@@ -82,7 +82,7 @@ class NoDisponibilidadInline(admin.TabularInline):
 
 
 class DocenteAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'correo', 'mostrar_asignaturas', 'ver_horario_link')  # 👈 Añadimos la nueva columna
+    list_display = ('nombre', 'correo', 'mostrar_asignaturas', 'ver_horario_link')  
     search_fields = ('nombre', 'correo')
     readonly_fields = ('mostrar_asignaturas',)
     inlines = [NoDisponibilidadInline]
@@ -195,7 +195,7 @@ class HorarioAdmin(admin.ModelAdmin):
 
         errores = []
 
-        # ✅ Paso 1: precargar datos en memoria
+        #  Paso 1: precargar datos en memoria
         todos_los_horarios = list(Horario.objects.select_related(
             'docente', 'aula', 'asignatura__semestre__carrera'
         ))
