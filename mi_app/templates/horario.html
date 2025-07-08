@@ -23,7 +23,8 @@
     <h1>Horario de Clases</h1>
 
     <!-- Selector de Carrera -->
-    <form method="GET">
+    <form method="POST">
+        {% csrf_token %}
         <label for="carrera">Selecciona una carrera:</label>
         <select name="carrera" id="carrera" onchange="this.form.submit()">
             <option value="">Todas</option>
