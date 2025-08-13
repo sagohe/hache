@@ -1,0 +1,25 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block branding %}
+  <!-- Branding que manda al panel de usuario, no al admin -->
+  <a href="{% url 'panel_usuario' %}" class="branding-link">
+    <img src="{% static 'mi_app/img/logo.png' %}" alt="Logo HACHE" height="40" />
+  </a>
+{% endblock %}
+
+{% block usertools %}
+  <!-- Barra superior simple -->
+  <div style="margin-right: 12px;">
+    Hola, {{ request.user.username }} |
+    <a href="{% url 'panel_usuario' %}">Mi panel</a> |
+    <a href="{% url 'mi_horario' %}">Mi horario</a> |
+    <a href="{% url 'exportar_horarios_pdf' %}">Exportar</a> |
+    <a href="{% url 'logout' %}">Salir</a>
+    {% if request.user.is_staff %}
+      | <a href="{% url 'admin:index' %}">Admin</a>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

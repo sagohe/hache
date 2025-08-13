@@ -18,9 +18,9 @@ import dj_database_url
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 #Redirigir login si no ha iniciado sesion
-LOGIN_URL = '/admin/login/'
+LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/'
-
+LOGOUT_REDIRECT_URL = '/accounts/login/'
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
@@ -84,7 +84,7 @@ WSGI_APPLICATION = 'mi_proyecto.wsgi.application'
 #nuestra base de datos sqlite se llama horario_intep.db
 DATABASES = {
     'default': dj_database_url.config(
-        default='postgresql://db_hache_user:7HMjtPgOxiIlGGebw0RqivSQSGaf8zml@dpg-d1mq5iffte5s73akv120-a.oregon-postgres.render.com/db_hache',
+        default='postgresql://db_hache_2uut_user:QjRLUHF1wFzEifkFV42i5Kxih8gwNjnR@dpg-d2cc0jh5pdvs73dh6q00-a.oregon-postgres.render.com/db_hache_2uut',
         conn_max_age=600
     )
 }

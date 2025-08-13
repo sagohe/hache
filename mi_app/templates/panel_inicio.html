@@ -57,8 +57,13 @@
   <p>Desde aquí puedes acceder a tus horarios o revisar la información permitida según tu rol.</p>
 
   <ul>
-    <li><a href="{% url 'admin:index' %}">Ir al Panel de Control</a></li>
-    <!-- Más opciones según permisos -->
-  </ul>
+    <li><a href="{% url 'generar_mi_horario' %}">Generar mi horario (si no tengo)</a></li>
+    <li><a href="{% url 'mi_horario' %}">Ver mi horario</a></li>
+    <li><a href="{% url 'mis_horarios' %}">Ver / Cargar mis horarios</a></li>
+    <li><a href="{% url 'guardar_horario' %}">Guardar horario actual</a></li>
+    {% if request.user.is_staff %}
+      <li><a href="{% url 'admin:index' %}">Ir al Panel de Control</a></li>
+    {% endif %}
+
 </div>
 {% endblock %}

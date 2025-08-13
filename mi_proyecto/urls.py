@@ -20,10 +20,8 @@ from mi_app.views import exportar_horarios_pdf, panel_inicio
 
 
 urlpatterns = [
+    path('', include('mi_app.urls')),    
     path('admin/', admin.site.urls),
-    path('', panel_inicio, name='panel_inicio'),
-    path("exportar-horarios/", exportar_horarios_pdf, name="exportar_horarios_pdf"),
-    path('', include('mi_app.urls')),
 ]
 
 

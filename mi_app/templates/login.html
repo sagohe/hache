@@ -1,0 +1,21 @@
+{% extends "user_base.html" %}
+{% load static %}
+{% block content %}
+<h2>Iniciar sesión</h2>
+
+{% include "_messages.html" %}
+
+<form method="post" style="max-width:420px;">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit" class="default">Entrar</button>
+</form>
+
+<p style="margin-top:10px;">
+  ¿No tienes cuenta?
+  <a href="{% url 'register' %}">Crear cuenta</a>
+</p>
+{% if form.errors %}
+  <p style="color:#b00020;margin-top:8px;">Usuario o contraseña inválidos.</p>
+{% endif %}
+{% endblock %}

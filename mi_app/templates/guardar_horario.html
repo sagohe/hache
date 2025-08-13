@@ -1,0 +1,16 @@
+{% extends "user_base.html" %}
+{% block content %}
+<h2>Guardar horario</h2>
+
+{% include "_messages.html" %}
+
+<form method="post" style="max-width:420px;">
+  {% csrf_token %}
+  <label>Nombre del horario (snapshot):</label>
+  <input type="text" name="nombre" placeholder="Ej: Semestre 1" required
+         style="display:block;width:100%;padding:8px;margin:8px 0;border:1px solid #ccc;border-radius:6px;">
+  <button type="submit" class="default">Guardar</button>
+</form>
+
+<p style="margin-top:14px;"><a href="{% url 'panel_usuario' %}">Volver al panel</a></p>
+{% endblock %}

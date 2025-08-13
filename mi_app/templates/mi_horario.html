@@ -1,0 +1,47 @@
+{% extends "user_base.html" %}
+{% block content %}
+<h2>Mi horario</h2>
+
+{% include "_messages.html" %}
+
+{% if horarios %}
+  {% regroup horarios by dia as grupos %}
+  {% for g in grupos %}
+    <h3 style="margin-top:18px;">{{ g.grouper.nombre }}</h3>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+      <thead>
+        <tr>
+          <th style="border:1px solid #ddd;padding:8px;background:#f9f9f9;">Asignatura</th>
+          <th style="border:1px solid #ddd;padding:8px;background:#f9f9f9;">Docente</th>
+          <th style="border:1px solid #ddd;padding:8px;background:#f9f9f9;">Aula</th>
+          <th style="border:1px solid #ddd;padding:8px;background:#f9f9f9;">Jornada</th>
+          <th style="border:1px solid #ddd;padding:8px;background:#f9f9f9;">Inicio</th>
+          <th style="border:1px solid #ddd;padding:8px;background:#f9f9f9;">Fin</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in g.list %}
+          <tr>
+            <td style="border:1px solid #ddd;padding:8px;">{{ h.asignatura.nombre }}</td>
+            <td style="border:1px solid #ddd;padding:8px;">{{ h.docente.nombre }}</td>
+            <td style="border:1px solid #ddd;padding:8px;">{{ h.aula.nombre }}</td>
+            <td style="border:1px solid #ddd;padding:8px;">{{ h.jornada }}</td>
+            <td style="border:1px solid #ddd;padding:8px;">{{ h.hora_inicio|time:"H:i" }}</td>
+            <td style="border:1px solid #ddd;padding:8px;">{{ h.hora_fin|time:"H:i" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+
+  <p style="margin-top:10px;">
+    <a class="button" href="{% url 'regenerar_mi_horario' %}">Regenerar horario</a>
+    <a class="button" href="{% url 'guardar_horario' %}">Guardar snapshot</a>
+  </p>
+{% else %}
+  <p>No tienes horario aún.</p>
+  <p><a class="button" href="{% url 'generar_mi_horario' %}">Generar mi horario</a></p>
+{% endif %}
+
+<p style="margin-top:14px;"><a href="{% url 'panel_usuario' %}">Volver al panel</a></p>
+{% endblock %}

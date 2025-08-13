@@ -1,0 +1,38 @@
+{% if messages %}
+  <ul class="app-messages">
+    {% for message in messages %}
+      <li class="app-message {{ message.tags }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+
+  <style>
+    .app-messages {
+      list-style: none;
+      padding: 0;
+      margin: 12px 0;
+    }
+    .app-message {
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      border: 1px solid transparent;
+    }
+    /* estilos por tag */
+    .app-message.success {
+      background: #e7f6ec;
+      border-color: #b7e1c0;
+    }
+    .app-message.info {
+      background: #eef5ff;
+      border-color: #cfe0ff;
+    }
+    .app-message.warning {
+      background: #fff7e6;
+      border-color: #ffe0a3;
+    }
+    .app-message.error {
+      background: #fdecea;
+      border-color: #f5c2c7;
+    }
+  </style>
+{% endif %}
