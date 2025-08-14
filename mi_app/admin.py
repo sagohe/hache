@@ -104,18 +104,50 @@ class TenantScopedAdminMixin(OpenToStaffAdminMixin):
 
 
 # ==========================
-# Registro básico de Institucion / Perfil (solo útil si lo quieres ver en admin)
+# OCULTAR "Instituciones" del admin (no se muestra)
 # ==========================
-@admin.register(Institucion)
-class InstitucionAdmin(OpenToStaffAdminMixin, admin.ModelAdmin):
-    list_display = ("nombre", "slug")
-    search_fields = ("nombre", "slug")
+# Si estaba registrado en algún momento, lo desregistramos por si acaso.
+try:
+    admin.site.unregister(Institucion)
+except admin.sites.NotRegistered:
+    pass
+# (No registramos Institucion de nuevo)
 
 
-@admin.register(PerfilUsuario)
-class PerfilUsuarioAdmin(OpenToStaffAdminMixin, admin.ModelAdmin):
+# ==========================
+# "Perfil de usuario" SOLO LECTURA (visible SOLO para staff, oculto a superuser)
+# ==========================
+class PerfilSoloLecturaAdmin(admin.ModelAdmin):
     list_display = ("user", "institucion")
     search_fields = ("user__username", "institucion__nombre")
+
+    # Mostrar módulo solo a staff normal (no a superusuario)
+    def has_module_permission(self, request):
+        return request.user.is_staff and not request.user.is_superuser
+
+    # Permisos: solo ver
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_staff and not request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Sin permisos de edición
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    # Cada usuario staff solo ve su propio perfil
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            # superuser no verá el módulo (has_module_permission False), pero igual limitamos
+            return qs.none()
+        return qs.filter(user=request.user)
+
+admin.site.register(PerfilUsuario, PerfilSoloLecturaAdmin)
 
 
 # ==========================
@@ -146,7 +178,7 @@ class SemestreInline(TabularInline):
     model = Semestre
     extra = 1
 
-    # Ocultar institucion en el inline; setearla en save_formset del padre si quieres
+    # Ocultar institucion en el inline
     def get_formset(self, request, obj=None, **kwargs):
         excl = set(kwargs.get('exclude') or ())
         excl.add('institucion')
@@ -390,7 +422,7 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         Genera horarios:
         - Staff normal: en SU institución (tomada del perfil).
         - Superusuario: puede elegir institución con ?institucion=<id>. Si hay solo una,
-        se usa automáticamente. Si hay varias y no pasa el parámetro, se le pide elegir.
+          se usa automáticamente. Si hay varias y no pasa el parámetro, se le pide elegir.
         """
         from .models import Institucion, Asignatura, Horario, NoDisponibilidad
         from .utils import asignar_horario_automatico
@@ -429,11 +461,11 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         # 2) Limpiar solo los horarios del usuario + institución
         Horario.objects.filter(usuario=request.user, institucion=inst).delete()
 
-        # 3) Traer datos de la MISMA institución (NO filtrar por usuario, Asignatura no tiene ese campo)
+        # 3) Traer datos de la MISMA institución
         asignaturas = (Asignatura.objects
-                    .select_related('semestre__carrera', 'aula', 'institucion')
-                    .prefetch_related('docentes')
-                    .filter(institucion=inst))
+                       .select_related('semestre__carrera', 'aula', 'institucion')
+                       .prefetch_related('docentes')
+                       .filter(institucion=inst))
 
         errores = []
 
@@ -443,7 +475,7 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             .select_related('docente', 'aula', 'asignatura__semestre__carrera', 'institucion')
         )
 
-        # Si NoDisponibilidad tiene FK a institucion, manten el filtro:
+        # NoDisponibilidad filtrada por institución si tiene FK
         no_disp_qs = NoDisponibilidad.objects.select_related('docente')
         if hasattr(NoDisponibilidad, "institucion_id"):
             no_disp_qs = no_disp_qs.filter(institucion=inst)

@@ -34,6 +34,10 @@ class Institucion(models.Model):
 class PerfilUsuario(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='perfil')
     institucion = models.ForeignKey(Institucion, on_delete=models.CASCADE, related_name='usuarios')
+    
+    class Meta:
+        verbose_name = "Perfil usuario"
+        verbose_name_plural = "Perfil usuario" 
 
     def __str__(self):
         return f"{self.user.username} @ {self.institucion.nombre}"
