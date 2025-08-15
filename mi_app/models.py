@@ -41,6 +41,65 @@ class PerfilUsuario(models.Model):
 
     def __str__(self):
         return f"{self.user.username} @ {self.institucion.nombre}"
+    
+class Descanso(models.Model):
+    """
+    Rango de tiempo no asignable creado por el usuario para un día específico.
+    Se aplica por institución + usuario + día (FK a DiaSemana).
+    """
+    institucion = models.ForeignKey(Institucion, on_delete=models.CASCADE, related_name="descansos", null=False, blank=False)
+    usuario = models.ForeignKey(User, on_delete=models.CASCADE, related_name="descansos")
+    dia = models.ForeignKey('DiaSemana', on_delete=models.CASCADE, related_name="descansos")
+    hora_inicio = models.TimeField()
+    hora_fin = models.TimeField()
+    nombre = models.CharField(max_length=80, blank=True, help_text="Opcional (ej. Almuerzo, Pausa)")
+    color_hex = models.CharField(max_length=7, default="#FFE0E0", help_text="Color para pintar el descanso en la grilla")
+
+    class Meta:
+        ordering = ['dia__orden', 'hora_inicio']
+        verbose_name = "Descanso"
+        verbose_name_plural = "Descansos"
+        indexes = [
+            models.Index(fields=['institucion', 'usuario']),
+            models.Index(fields=['institucion', 'usuario', 'dia']),
+        ]
+
+    def __str__(self):
+        titulo = self.nombre or "Descanso"
+        return f"{titulo} - {self.dia.nombre} {self.hora_inicio}-{self.hora_fin}"
+
+    def clean(self):
+        errors = {}
+
+        if self.hora_inicio and self.hora_fin and self.hora_fin <= self.hora_inicio:
+            errors['hora_fin'] = "La hora de fin debe ser mayor que la hora de inicio."
+
+        # Si todavía no hay FK seteadas, no chequear solapes
+        if not self.institucion_id or not self.usuario_id or not self.dia_id:
+            if errors:
+                raise ValidationError(errors)
+            return
+
+        if getattr(self.dia, 'institucion_id', None) and self.dia.institucion_id != self.institucion_id:
+            errors['dia'] = "El día seleccionado no pertenece a tu institución."
+
+        if self.hora_inicio and self.hora_fin:
+            existe_solape = Descanso.objects.filter(
+                institucion_id=self.institucion_id,
+                usuario_id=self.usuario_id,
+                dia_id=self.dia_id,
+                hora_inicio__lt=self.hora_fin,
+                hora_fin__gt=self.hora_inicio,
+            ).exclude(pk=self.pk).exists()
+            if existe_solape:
+                msg = "Este descanso se solapa con otro ya existente."
+                errors['hora_inicio'] = msg
+                errors['hora_fin'] = msg
+
+        if errors:
+            raise ValidationError(errors)
+
+
 
 
 # (Si usas este modelo, es global; si no, puedes eliminarlo)
@@ -144,7 +203,8 @@ class Asignatura(models.Model):
         return f"{self.intensidad_horaria / 60:.1f} horas"
 
     def __str__(self):
-        return f"{self.nombre} ({self.semestre}) - {self.jornada} ({self.get_intensidad_horas()} por semana )"
+        sem_txt = f" ({self.semestre})" if self.semestre else ""
+        return f"{self.nombre}{sem_txt} - {self.jornada} ({self.get_intensidad_horas()} por semana )"
 
 
 class NoDisponibilidad(models.Model):

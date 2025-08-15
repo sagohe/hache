@@ -43,7 +43,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'mi_app.apps.HacheConfig', #agrego mi app
+    'mi_app.apps.HacheConfig',
+    "widget_tweaks",#agrego mi app
 ]
 
 MIDDLEWARE = [

@@ -1,65 +1,169 @@
 {% extends "admin/change_list.html" %}
 
 {% block object-tools %}
-    {{ block.super }}
-    <li>
-        <a href="{% url 'exportar_horarios_pdf' %}?{{ request.GET.urlencode }}" class="button">Exportar PDF</a>
-    </li>
+  {{ block.super }}
+  <li>
+    <a href="{% url 'exportar_horarios_pdf' %}?{{ request.GET.urlencode }}" class="button">Exportar PDF</a>
+  </li>
 {% endblock %}
 
 {% block result_list %}
-    <style>
-        .day-header {
-            font-size: 20px;
-            font-weight: bold;
-            background: #d9edf7;
-            padding: 8px;
-            margin-top: 15px;
-            border-radius: 5px;
-        }
-        .horario-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }
-        .horario-table th, .horario-table td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        .horario-table th {
-            background-color: #f4f4f4;
-        }
-    </style>
+<style>
+  :root{
+    --card-bg: #ffffff;
+    --card-bd: #e5e7eb;
+    --muted: #6b7280;
+    --head-bg: #f3f4f6;
+    --head-tx: #111827;
+    --row-hover: #f9fafb;
+    --chip-bg: #eef2ff;
+    --chip-bd: #c7d2fe;
+    --chip-tx: #1f2937;
+    /* Colores de descanso en verde aguamarina */
+    --descanso-bg: #d9fdf5;
+    --descanso-bd: #a3e4d7;
+    --descanso-chip-bg: #c4f5e6;
+    --descanso-chip-bd: #7ddac2;
+  }
 
-    {% regroup cl.result_list by dia as horarios_por_dia %}
+  .day-card{
+    background: var(--card-bg);
+    border: 1px solid var(--card-bd);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 18px 0;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
 
-    {% for dia in horarios_por_dia %}
-        <div class="day-header">{{ dia.grouper }}</div>
+  .day-header{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding: 8px 12px;
+    background: #e0f2fe;
+    color:#075985;
+    font-weight: 800;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    font-size: 1.4rem; /* Aumentado */
+  }
 
-        <table class="horario-table">
-            <thead>
-                <tr>
-                    <th>Asignatura</th>
-                    <th>Docente</th>
-                    <th>Aula</th>
-                    <th>Hora Inicio</th>
-                    <th>Hora Fin</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for horario in dia.list %}
-                    <tr>
-                        <td>{{ horario.asignatura.nombre }}</td>
-                        <td>{{ horario.docente.nombre }}</td>
-                        <td>{{ horario.aula.nombre }}</td>
-                        <td>{{ horario.hora_inicio|time:"H:i" }}</td>
-                        <td>{{ horario.hora_fin|time:"H:i" }}</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% endfor %}
+  .legend{
+    display:flex; gap:10px; align-items:center; font-size:12px; color:var(--muted); margin-bottom:6px;
+  }
+  .legend .dot{ width:10px; height:10px; border-radius:999px; display:inline-block; }
+  .dot-class{ background:#dbeafe; border:1px solid #bfdbfe; }
+  .dot-break{ background:var(--descanso-bg); border:1px solid var(--descanso-bd); }
+
+  .horario-table{
+    width:100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow:hidden;
+    border-radius: 10px;
+    border:1px solid var(--card-bd);
+  }
+  .horario-table thead th{
+    background: var(--head-bg);
+    color: var(--head-tx);
+    text-align:left;
+    padding:10px 12px;
+    font-weight:600;
+    border-bottom:1px solid var(--card-bd);
+  }
+  .horario-table th:first-child{ border-top-left-radius:10px; }
+  .horario-table th:last-child{ border-top-right-radius:10px; }
+
+  .horario-table tbody td{
+    padding:10px 12px;
+    border-bottom:1px solid var(--card-bd);
+    vertical-align:middle;
+  }
+  .horario-table tbody tr:hover td{
+    background: var(--row-hover);
+  }
+
+  /* Fila de DESCANSO */
+  .descanso-row td{
+    background: var(--descanso-bg);
+    border-bottom:1px solid var(--descanso-bd);
+  }
+  .descanso-row:hover td{
+    background: #c0f7ea;
+  }
+
+  /* Chips */
+  .chip{
+    display:inline-block;
+    padding:4px 10px;
+    border-radius:999px;
+    font-weight:600;
+    background: var(--chip-bg);
+    border:1px solid var(--chip-bd);
+    color: var(--chip-tx);
+  }
+  .chip-break{
+    background: var(--descanso-chip-bg);
+    border:1px solid var(--descanso-chip-bd);
+  }
+
+  /* Responsive */
+  @media (max-width: 860px){
+    .horario-table thead{ display:none; }
+    .horario-table, .horario-table tbody, .horario-table tr, .horario-table td{ display:block; width:100%; }
+    .horario-table tr{ margin:0 0 10px 0; border:1px solid var(--card-bd); border-radius:10px; overflow:hidden; }
+    .horario-table td{
+      border:0; border-bottom:1px dashed var(--card-bd);
+      display:flex; justify-content:space-between; gap:16px;
+    }
+    .horario-table td:last-child{ border-bottom:0; }
+    .td-label{ color:var(--muted); font-size:12px; }
+  }
+</style>
+
+<div class="legend">
+  <span class="dot dot-class"></span> Clase
+  <span class="dot dot-break"></span> Descanso
+</div>
+
+{% regroup cl.result_list by dia as horarios_por_dia %}
+
+{% for dia in horarios_por_dia %}
+  <div class="day-card">
+    <div class="day-header">{{ dia.grouper }}</div>
+
+    <table class="horario-table">
+      <thead>
+        <tr>
+          <th>Actividad</th>
+          <th>Docente</th>
+          <th>Aula</th>
+          <th>Inicio</th>
+          <th>Fin</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in dia.list %}
+          <tr class="{% if h.asignatura.nombre == 'DESCANSO' %}descanso-row{% endif %}">
+            <td>
+              {% if h.asignatura.nombre == 'DESCANSO' %}
+                <span class="chip chip-break">Descanso</span>
+              {% else %}
+                <span class="chip">{{ h.asignatura.nombre }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if h.asignatura.nombre == 'DESCANSO' %}—{% else %}{{ h.docente.nombre|default:"—" }}{% endif %}
+            </td>
+            <td>
+              {% if h.asignatura.nombre == 'DESCANSO' %}—{% else %}{{ h.aula.nombre|default:"—" }}{% endif %}
+            </td>
+            <td>{{ h.hora_inicio|time:"H:i" }}</td>
+            <td>{{ h.hora_fin|time:"H:i" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
 {% endblock %}
-
-

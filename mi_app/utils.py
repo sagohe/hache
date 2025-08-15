@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, time
-from .models import NoDisponibilidad, Horario, Aula
+from .models import NoDisponibilidad, Horario, Aula, Descanso
 
 
 def obtener_bloques_por_jornada(jornada):
@@ -9,6 +9,29 @@ def obtener_bloques_por_jornada(jornada):
         'Noche': (time(18, 15), time(21, 45)),
     }
     return rangos.get(jornada, (None, None))
+
+def hay_descanso_mem(dia, hora_inicio, hora_fin, descansos):
+    """
+    True si (hora_inicio, hora_fin) pisa algún descanso del usuario para ese día.
+    Robusto: compara por ID de DiaSemana y, si no hay, por nombre.
+    """
+    dia_id = getattr(dia, "id", None)
+    dia_nombre = getattr(dia, "nombre", None)
+
+    for d in descansos:
+        # Coincidencia por FK id o por nombre (fallback)
+        mismo_dia = (
+            (dia_id is not None and d.dia_id == dia_id) or
+            (dia_id is None and dia_nombre is not None and getattr(d.dia, "nombre", None) == dia_nombre)
+        )
+        if not mismo_dia:
+            continue
+
+        # Solape estricto (cubre casos iguales a los bordes)
+        if d.hora_inicio < hora_fin and d.hora_fin > hora_inicio:
+            return True
+    return False
+
 
 
 def aula_disponible_en_memoria(aula, dia, hora_inicio, hora_fin, horarios):
@@ -57,12 +80,14 @@ def docente_esta_disponible_mem(docente, jornada, dia, hora_inicio, hora_fin, ho
     return True
 
 
-def puede_asignar_horario_mem(docente, aula, asignatura, dia, jornada, hora_inicio, hora_fin, horarios, no_disponibilidades):
+def puede_asignar_horario_mem(docente, aula, asignatura, dia, jornada, hora_inicio, hora_fin, horarios, no_disponibilidades,descansos=None):
+    descansos = descansos or []
     return (
         docente_esta_disponible_mem(docente, jornada, dia, hora_inicio, hora_fin, horarios, no_disponibilidades) and
         aula_disponible_en_memoria(aula, dia, hora_inicio, hora_fin, horarios) and
         not hay_conflicto_estudiantes_mem(asignatura, dia, hora_inicio, hora_fin, horarios) and
-        all(h.asignatura != asignatura or h.dia != dia for h in horarios)
+        all(h.asignatura != asignatura or h.dia != dia for h in horarios) and
+        not hay_descanso_mem(dia, hora_inicio, hora_fin, descansos)
     )
 
 
@@ -70,16 +95,21 @@ def asignar_horario_automatico(
     asignatura,
     horarios,
     no_disponibilidades,
+    descansos=None,          # ← nuevo parámetro
     usuario=None,
-    institucion=None,      # 👈 nuevo
+    institucion=None,
     con_motivo=False
 ):
     """
     Si con_motivo=True -> devuelve (ok, motivo). Si con_motivo=False -> solo True/False.
     Todo se genera en el contexto del 'usuario' y/o 'institucion' (aulas, etc. del dueño).
+    Respeta los 'descansos' (lista de objetos Descanso del usuario) para NO asignar dentro de esos rangos.
     """
     def _ret(ok, motivo=""):
         return (ok, motivo) if con_motivo else ok
+
+    from datetime import datetime, timedelta, time  # por si no están arriba
+    descansos = list(descansos or [])
 
     jornada = asignatura.jornada
     semestre = asignatura.semestre
@@ -145,21 +175,23 @@ def asignar_horario_automatico(
                 for aula in aulas:
                     if puede_asignar_horario_mem(
                         docente, aula, asignatura, dia, jornada,
-                        hora_inicio_time, hora_fin_time, horarios, no_disponibilidades
+                        hora_inicio_time, hora_fin_time, horarios, no_disponibilidades,
+                        descansos
                     ):
                         aula_asignada = aula
                         break
             else:
                 if not puede_asignar_horario_mem(
                     docente, aula_asignada, asignatura, dia, jornada,
-                    hora_inicio_time, hora_fin_time, horarios, no_disponibilidades
+                    hora_inicio_time, hora_fin_time, horarios, no_disponibilidades,
+                    descansos=descansos
                 ):
                     aula_asignada = None
 
             if aula_asignada:
                 nuevo_horario = Horario(
                     usuario=usuario,
-                    institucion=institucion,  # 👈 si Horario tiene FK institucion
+                    institucion=institucion,
                     asignatura=asignatura,
                     docente=docente,
                     aula=aula_asignada,
