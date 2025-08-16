@@ -27,6 +27,17 @@ class Institucion(models.Model):
     nombre = models.CharField(max_length=150, unique=True)
     slug = models.SlugField(max_length=160, unique=True)
 
+    DURACIONES_HORA = [(40, "40 min"), (45, "45 min"), (50, "50 min"), (60, "60 min")]
+    duracion_hora_minutos = models.PositiveIntegerField(
+        choices=DURACIONES_HORA,
+        default=45,
+        help_text=(
+            "Cuántos minutos dura una 'hora institucional' en esta institución. "
+            "Afecta a TODAS las asignaturas al convertir las horas totales de la asignatura "
+            "en minutos totales y luego distribuirlos por semana."
+        )
+    )
+
     def __str__(self):
         return self.nombre
 
@@ -191,20 +202,20 @@ class Asignatura(models.Model):
     docentes = models.ManyToManyField(Docente, related_name="asignaturas_asignadas", blank=True)
     aula = models.ForeignKey(Aula, on_delete=models.SET_NULL, null=True, blank=True)
     jornada = models.CharField(max_length=10, choices=JORNADAS, default='Mañana')
-    intensidad_horaria = models.PositiveIntegerField(default=90)
     semestre = models.ForeignKey(Semestre, on_delete=models.CASCADE, null=True, blank=True)
+    horas_totales = models.PositiveIntegerField(
+    help_text="Horas totales de la asignatura en HORAS INSTITUCIONALES (según la duración de hora definida en la institución).")
+    semanas = models.PositiveIntegerField(default=16,help_text="Cantidad de semanas en que se verá esta asignatura (≥ 1).")
+
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=['institucion', 'nombre', 'semestre'], name='uniq_asignatura_nombr_sem_por_institucion'),
         ]
 
-    def get_intensidad_horas(self):
-        return f"{self.intensidad_horaria / 60:.1f} horas"
-
     def __str__(self):
         sem_txt = f" ({self.semestre})" if self.semestre else ""
-        return f"{self.nombre}{sem_txt} - {self.jornada} ({self.get_intensidad_horas()} por semana )"
+        return f"{self.nombre}{sem_txt} - {self.jornada} [{self.horas_totales} h inst., {self.semanas} sem]"
 
 
 class NoDisponibilidad(models.Model):

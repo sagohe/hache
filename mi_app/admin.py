@@ -114,6 +114,66 @@ except admin.sites.NotRegistered:
     pass
 # (No registramos Institucion de nuevo)
 
+@admin.register(Institucion)
+class InstitucionAdmin(admin.ModelAdmin):
+    # Mostrar columnas y permitir edición directa del campo de la hora en la lista
+    list_display = ("nombre", "slug", "duracion_hora_minutos")
+    list_editable = ("duracion_hora_minutos",)
+
+    # Limitar el queryset:
+    # - Superuser: ve todas
+    # - Staff: solo su propia institución
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        perfil = getattr(request.user, "perfil", None)
+        if perfil and perfil.institucion_id:
+            return qs.filter(id=perfil.institucion_id)
+        return qs.none()
+
+    # En el formulario de detalle:
+    # - Superuser: puede editar todo
+    # - Staff: SOLO puede editar 'duracion_hora_minutos'; el resto readonly
+    def get_readonly_fields(self, request, obj=None):
+        if request.user.is_superuser:
+            return ()
+        # importante: NO incluir 'duracion_hora_minutos' aquí
+        return ("nombre", "slug",)
+
+    # Opcional: controlar el orden/campos que se muestran en el form
+    def get_fields(self, request, obj=None):
+        # mostramos primero el campo editable para staff
+        return ("duracion_hora_minutos", "nombre", "slug")
+
+    # Permisos de módulo y acciones
+    def has_module_permission(self, request):
+        # que el módulo sea visible para superuser y staff
+        return request.user.is_superuser or request.user.is_staff
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.is_staff
+
+    def has_add_permission(self, request):
+        # solo superuser puede crear instituciones
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        # superuser puede editar todo; staff puede editar su institución (pero
+        # al ser readonly el resto de campos, en la práctica solo cambia 'duracion_hora_minutos')
+        if request.user.is_superuser:
+            return True
+        # staff: permitir change SOLO si está viendo su propia institución
+        perfil = getattr(request.user, "perfil", None)
+        if not perfil or not perfil.institucion_id:
+            return False
+        if obj is None:
+            # en la lista, permitir para que 'list_editable' funcione
+            return True
+        return obj.id == perfil.institucion_id
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 # ==========================
 # "Perfil de usuario" SOLO LECTURA (visible SOLO para staff, oculto a superuser)
@@ -233,7 +293,8 @@ class AsignaturaForm(forms.ModelForm):
 
 class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     form = AsignaturaForm
-    list_display = ('nombre', 'semestre', 'mostrar_docentes', 'aula', 'mostrar_jornadas', 'intensidad_horaria')
+    # Reemplaza intensidad_horaria por horas_totales y semanas
+    list_display = ('nombre', 'semestre', 'mostrar_docentes', 'aula', 'mostrar_jornadas', 'horas_totales', 'semanas')
     list_filter = ('semestre__carrera', 'docentes', 'semestre', 'jornada')
     search_fields = ('nombre', 'semestre__numero', 'docentes__nombre')
 
@@ -595,7 +656,12 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             institucion=inst,
             nombre="DESCANSO",
             semestre=None,  # tu modelo permite null/blank en semestre
-            defaults={"jornada": "Mañana", "intensidad_horaria": 30},
+            defaults={
+                "jornada": "Mañana",
+                # Como ahora ya no existe 'intensidad_horaria', usa los nuevos campos:
+                "horas_totales": 0,   # no se usa para pintar el bloque de descanso
+                "semanas": 16,        # valor neutro
+            },
         )
 
         # Placeholders (uno por institución). Evita duplicados con get_or_create
