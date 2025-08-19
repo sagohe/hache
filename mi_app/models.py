@@ -37,6 +37,10 @@ class Institucion(models.Model):
             "en minutos totales y luego distribuirlos por semana."
         )
     )
+        
+    class Meta:
+        verbose_name = "Institución"
+        verbose_name_plural = "Instituciones"
 
     def __str__(self):
         return self.nombre
@@ -139,13 +143,15 @@ class Docente(models.Model):
 
 
 class DiaSemana(models.Model):
-    institucion = models.ForeignKey(Institucion, on_delete=models.CASCADE, related_name="dias",null=False, blank=False)
+    institucion = models.ForeignKey(Institucion, on_delete=models.CASCADE, related_name="dias")
     codigo = models.CharField(max_length=2)
     nombre = models.CharField(max_length=20)
     orden = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ['orden']
+        default_permissions = ()   # <- sin add/change/delete/view
+        permissions = ()           # <- sin permisos adicionales
         constraints = [
             models.UniqueConstraint(fields=['institucion', 'codigo'], name='uniq_dia_codigo_por_institucion'),
             models.UniqueConstraint(fields=['institucion', 'nombre'], name='uniq_dia_nombre_por_institucion'),
@@ -153,7 +159,6 @@ class DiaSemana(models.Model):
 
     def __str__(self):
         return self.nombre
-
 
 class Aula(models.Model):
     institucion = models.ForeignKey(Institucion, on_delete=models.CASCADE, related_name="aulas",null=False, blank=False)
@@ -206,7 +211,28 @@ class Asignatura(models.Model):
     horas_totales = models.PositiveIntegerField(
     help_text="Horas totales de la asignatura en HORAS INSTITUCIONALES (según la duración de hora definida en la institución).")
     semanas = models.PositiveIntegerField(default=16,help_text="Cantidad de semanas en que se verá esta asignatura (≥ 1).")
+    
+    def clean(self):
+        if not self.semanas or not self.horas_totales:
+            return
+        
+        dur_hora = getattr(self.institucion, "duracion_hora_minutos", 45)
+        minutos_totales = self.horas_totales * dur_hora
+        mps = minutos_totales / self.semanas
 
+        bloques = mps / 15.0
+        bloques_redondeados = int(bloques + 0.5)
+        minutos_redondeados = bloques_redondeados * 15
+
+        if minutos_redondeados != mps:
+            raise ValidationError({
+                "horas_totales": (
+                    f"⚠️ Ojo: {self.horas_totales} horas en {self.semanas} semanas "
+                    f"con hora de {dur_hora} min = {mps:.1f} min/semana. "
+                    f"Se ajustará automáticamente a {minutos_redondeados} min/semana "
+                    f"(redondeado al múltiplo de 15 más cercano)."
+                )
+            })
 
     class Meta:
         constraints = [

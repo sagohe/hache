@@ -40,47 +40,44 @@
 
   <!-- Panel derecho: Card de login -->
   <main class="panel">
-    <!-- CORRECCIÓN: wrapper con borde degradado y centrado perfecto -->
-    <div class="frame">
-      <div class="card">
-        <header class="card-head">
-          <h2>Iniciar sesión</h2>
-          <p class="sub">Bienvenido de nuevo</p>
-        </header>
+    <div class="card">
+      <header class="card-head">
+        <h2>Iniciar sesión</h2>
+        <p class="sub">Bienvenido de nuevo</p>
+      </header>
 
-        {% include "_messages.html" %}
+      {% include "_messages.html" %}
 
-        {% if form.non_field_errors %}
-          <div class="alert">{{ form.non_field_errors }}</div>
-        {% endif %}
+      {% if form.non_field_errors %}
+        <div class="alert">{{ form.non_field_errors }}</div>
+      {% endif %}
 
-        <form method="post" novalidate class="form">
-          {% csrf_token %}
+      <form method="post" novalidate class="form">
+        {% csrf_token %}
 
-          <div class="field">
-            <label for="{{ form.username.id_for_label }}">Usuario</label>
-            {{ form.username|add_class:"input"|attr:"placeholder:Ingresa tu usuario" }}
-            {% if form.username.errors %}
-              <div class="error">{{ form.username.errors|striptags }}</div>
-            {% endif %}
-          </div>
+        <div class="field">
+          <label for="{{ form.username.id_for_label }}">Usuario</label>
+          {{ form.username|add_class:"input"|attr:"placeholder:Ingresa tu usuario" }}
+          {% if form.username.errors %}
+            <div class="error">{{ form.username.errors|striptags }}</div>
+          {% endif %}
+        </div>
 
-          <div class="field">
-            <label for="{{ form.password.id_for_label }}">Contraseña</label>
-            {{ form.password|add_class:"input"|attr:"placeholder:Ingresa tu contraseña"|attr:"type:password" }}
-            {% if form.password.errors %}
-              <div class="error">{{ form.password.errors|striptags }}</div>
-            {% endif %}
-          </div>
+        <div class="field">
+          <label for="{{ form.password.id_for_label }}">Contraseña</label>
+          {{ form.password|add_class:"input"|attr:"placeholder:Ingresa tu contraseña"|attr:"type:password" }}
+          {% if form.password.errors %}
+            <div class="error">{{ form.password.errors|striptags }}</div>
+          {% endif %}
+        </div>
 
-          <button type="submit" class="btn">Entrar</button>
-        </form>
+        <button type="submit" class="btn">Entrar</button>
+      </form>
 
-        <p class="alt">
-          ¿No tienes cuenta?
-          <a href="{% url 'register' %}">Crear cuenta</a>
-        </p>
-      </div>
+      <p class="alt">
+        ¿No tienes cuenta?
+        <a href="{% url 'register' %}">Crear cuenta</a>
+      </p>
     </div>
   </main>
 </div>
@@ -199,18 +196,11 @@
 
   /* ====== PANEL DERECHO (FORM) ====== */
   .panel{
-    display: grid;
-    place-items: center; /* CORRECCIÓN: asegura centrado perfecto del frame en ambos ejes */
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 48px;
     background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-  }
-
-  /* CORRECCIÓN: Borde degradado externo y centrado */
-  .frame{
-    background: linear-gradient(135deg, #007bff, #00d4ff, #20c997);
-    padding: 3px;
-    border-radius: 22px;
-    display: inline-block; /* evita que ocupe todo el ancho, se centra por place-items */
   }
 
   .card{

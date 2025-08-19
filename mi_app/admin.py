@@ -4,7 +4,7 @@ from django.shortcuts import redirect
 from django.urls import path
 from django.db import transaction
 from django.db.models import Case, When, IntegerField, Value, F
-from django.utils.html import format_html
+from django.utils.html import format_html, strip_tags
 from django import forms
 from datetime import time as _time
 from django.db.models.functions import Coalesce
@@ -116,13 +116,31 @@ except admin.sites.NotRegistered:
 
 @admin.register(Institucion)
 class InstitucionAdmin(admin.ModelAdmin):
-    # Mostrar columnas y permitir edición directa del campo de la hora en la lista
+    # Lista
     list_display = ("nombre", "slug", "duracion_hora_minutos")
-    list_editable = ("duracion_hora_minutos",)
+    change_list_template = "admin/mi_app/institucion/change_list_institucion.html"
 
-    # Limitar el queryset:
-    # - Superuser: ve todas
-    # - Staff: solo su propia institución
+    # --- Bloque explicativo arriba de los campos ---
+    fieldsets = (
+        (None, {
+            "fields": ("nombre", "slug", "duracion_hora_minutos"),
+            "description": format_html(
+                "<div style='background:#F9FAFB;border:1px solid #E5E7EB;"
+                "padding:10px 12px;border-radius:8px;margin-bottom:8px;'>"
+                "<b>¿Qué es la hora institucional?</b><br>"
+                "Es la duración real, en minutos, que tu institución considera como "
+                "una 'hora' de clase (p. ej. 45, 50 o 60).<br><br>"
+                "<b>¿Para qué se usa?</b><br>"
+                "Al crear asignaturas, el sistema convierte las <i>horas totales</i> "
+                "en <i>minutos totales</i> usando esta duración, los reparte por "
+                "semanas y ajusta a bloques de 15 minutos para que el horario quede "
+                "cuadrado sin huecos raros."
+                "</div>"
+            )
+        }),
+    )
+
+    # --- (permisos/visibilidad) ---
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
@@ -132,48 +150,37 @@ class InstitucionAdmin(admin.ModelAdmin):
             return qs.filter(id=perfil.institucion_id)
         return qs.none()
 
-    # En el formulario de detalle:
-    # - Superuser: puede editar todo
-    # - Staff: SOLO puede editar 'duracion_hora_minutos'; el resto readonly
     def get_readonly_fields(self, request, obj=None):
         if request.user.is_superuser:
             return ()
-        # importante: NO incluir 'duracion_hora_minutos' aquí
-        return ("nombre", "slug",)
+        return ("nombre", "slug",)  # el staff solo edita duracion_hora_minutos
 
-    # Opcional: controlar el orden/campos que se muestran en el form
-    def get_fields(self, request, obj=None):
-        # mostramos primero el campo editable para staff
-        return ("duracion_hora_minutos", "nombre", "slug")
+    # Importante: ya no usamos get_fields; fieldsets manda.
+    # def get_fields(self, request, obj=None):
+    #     ...
 
-    # Permisos de módulo y acciones
     def has_module_permission(self, request):
-        # que el módulo sea visible para superuser y staff
         return request.user.is_superuser or request.user.is_staff
 
     def has_view_permission(self, request, obj=None):
         return request.user.is_superuser or request.user.is_staff
 
     def has_add_permission(self, request):
-        # solo superuser puede crear instituciones
         return request.user.is_superuser
 
     def has_change_permission(self, request, obj=None):
-        # superuser puede editar todo; staff puede editar su institución (pero
-        # al ser readonly el resto de campos, en la práctica solo cambia 'duracion_hora_minutos')
         if request.user.is_superuser:
             return True
-        # staff: permitir change SOLO si está viendo su propia institución
         perfil = getattr(request.user, "perfil", None)
         if not perfil or not perfil.institucion_id:
             return False
         if obj is None:
-            # en la lista, permitir para que 'list_editable' funcione
             return True
         return obj.id == perfil.institucion_id
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
+
 
 # ==========================
 # "Perfil de usuario" SOLO LECTURA (visible SOLO para staff, oculto a superuser)
@@ -275,50 +282,110 @@ class SemestreInline(TabularInline):
 # Asignatura
 # ==========================
 class AsignaturaForm(forms.ModelForm):
+    # Campo “virtual” solo para el formulario
+    explicacion_horas = forms.CharField(
+        label="Explicación de la carga semanal",
+        required=False,
+        widget=forms.Textarea(attrs={
+            "rows": 6,
+            "readonly": "readonly",
+            "style": "background:#f9fafb"
+        })
+    )
+
     class Meta:
         model = Asignatura
-        fields = '__all__'
+        fields = '__all__'  # incluye todos los de modelo; el extra es este campo
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # bloquear plus/editar en selects
         for field in ('semestre', 'aula'):
             if field in self.fields:
                 widget = self.fields[field].widget
-                for attr in (
-                    'can_add_related', 'can_change_related',
-                    'can_view_related', 'can_delete_related',
-                ):
+                for attr in ('can_add_related','can_change_related','can_view_related','can_delete_related'):
                     setattr(widget, attr, False)
+
+        # rellenar la explicación (texto plano para que no se escape HTML)
+        texto_html = _ayuda_carga_sem(self.instance)  # tu helper devuelve HTML
+        self.fields['explicacion_horas'].initial = strip_tags(texto_html)  # lo ponemos plano
+
+
+def _ayuda_carga_sem(obj):
+    if not obj:
+        return format_html(
+            "<p>Ingrese <b>Horas totales</b> y <b>Semanas</b> para ver el cálculo según la "
+            "duración de la hora institucional.</p>"
+            "<ul>"
+            "<li>Horas totales × min/hora institucional = <b>minutos totales</b></li>"
+            "<li>Minutos totales ÷ semanas = <b>minutos/semana</b></li>"
+            "<li>Se ajusta al múltiplo de 15 min más cercano (mínimo 60)</li>"
+            "</ul>"
+        )
+
+    if not obj.semanas or not obj.horas_totales or not getattr(obj, "institucion", None):
+        return format_html(
+            "<p>Complete <b>Horas totales</b>, <b>Semanas</b> y la <b>Institución</b> para ver el cálculo.</p>"
+        )
+
+    dh = getattr(obj.institucion, "duracion_hora_minutos", 45)
+    mt = obj.horas_totales * dh
+    mps = mt / obj.semanas
+    bloques = int(mps / 15.0 + 0.5)
+    mps_red = max(60, bloques * 15)
+
+    # PRE-FORMATEA números a strings
+    mps_fmt = f"{mps:.1f}"
+    hsem_fmt = f"{mps_red/60.0:.2f}"
+
+    return format_html(
+        "<div>"
+        "<p>👉 Indicó <b>{ht}</b> horas en <b>{ss}</b> semanas, con hora institucional de <b>{dh}</b> min.</p>"
+        "<ul>"
+        "<li>Minutos totales: <b>{mt}</b></li>"
+        "<li>Minutos/semanas: <b>{mps_fmt}</b> Minutos semanales </li>"
+        "<li>Ajuste: <b>{mps_red}</b> min/sem "
+        "(≈ {hsem_fmt} horas de {dh} min)</li>"
+        "</ul>"
+        "</div>",
+        ht=obj.horas_totales, ss=obj.semanas, dh=dh, mt=mt,
+        mps_fmt=mps_fmt, mps_red=mps_red, hsem_fmt=hsem_fmt
+    )
 
 
 class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     form = AsignaturaForm
-    # Reemplaza intensidad_horaria por horas_totales y semanas
-    list_display = ('nombre', 'semestre', 'mostrar_docentes', 'aula', 'mostrar_jornadas', 'horas_totales', 'semanas')
-    list_filter = ('semestre__carrera', 'docentes', 'semestre', 'jornada')
-    search_fields = ('nombre', 'semestre__numero', 'docentes__nombre')
+    list_display = ('nombre','semestre','mostrar_docentes','aula','mostrar_jornadas','horas_totales','semanas')
+    list_filter = ('semestre__carrera','docentes','semestre','jornada')
+    search_fields = ('nombre','semestre__numero','docentes__nombre')
+
+    fieldsets = (
+        (None, {'fields': ('nombre','semestre','jornada','aula','docentes')}),
+        ('Carga y cálculo', {'fields': ('horas_totales','semanas','explicacion_horas')}),
+    )
+
+    def explicacion_horas(self, obj):
+        return _ayuda_carga_sem(obj)
+    explicacion_horas.short_description = "Explicación de la carga semanal"
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        return qs.prefetch_related('docentes', 'semestre', 'aula')
+        return qs.prefetch_related('docentes','semestre','aula')
 
     def mostrar_docentes(self, obj):
-        return ", ".join(docente.nombre for docente in obj.docentes.all())
+        return ", ".join(d.nombre for d in obj.docentes.all())
     mostrar_docentes.short_description = "Docentes"
 
     def mostrar_jornadas(self, obj):
         return obj.jornada
     mostrar_jornadas.short_description = "Jornada"
 
-
-# ==========================
-# Día de la semana
-# ==========================
-@admin.register(DiaSemana)
-class DiaSemanaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
-    list_display = ('codigo', 'nombre', 'orden')
-    ordering = ('orden',)
-
+try:
+    admin.site.unregister(Asignatura)
+except admin.sites.NotRegistered:
+    pass
+admin.site.register(Asignatura, AsignaturaAdmin)
 
 # ==========================
 # Carrera (con Semestres inline)
@@ -333,8 +400,6 @@ class CarreraAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         return ", ".join([d.nombre for d in obj.dias_clase.all().order_by('orden')])
     mostrar_dias_clase.short_description = "Días de Clase"
 
-
-admin.site.register(Asignatura, AsignaturaAdmin)
 admin.site.register(CarreraUniversitaria, CarreraAdmin)
 
 
@@ -352,9 +417,26 @@ admin.site.register(Semestre, SemestreAdmin)
 class NoDisponibilidadInline(TabularInline):
     model = NoDisponibilidad
     extra = 1
+    show_change_link = True
+    fk_name = 'docente'
+    classes = ('tab',)
     verbose_name = "Horario NO disponible"
-    verbose_name_plural = "Horarios en que el docente NO está disponible"
+    verbose_name_plural = "No disponibilidad del docente"
 
+    # —— Permisos para que el STAFF vea/edite el inline ——
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.is_staff
+
+    def has_add_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.is_staff
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.is_staff
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.is_staff
+
+    # —— Multi-tenant: ocultamos institucion, la seteamos al guardar ——
     def get_formset(self, request, obj=None, **kwargs):
         excl = set(kwargs.get('exclude') or ())
         excl.add('institucion')
@@ -362,13 +444,26 @@ class NoDisponibilidadInline(TabularInline):
         return super().get_formset(request, obj, **kwargs)
 
     def save_formset(self, request, form, formset, change):
+        # 'obj' es el Docente padre en la vista de cambio
+        parent_inst = getattr(getattr(form.instance, 'institucion', None), 'id', None)
         instances = formset.save(commit=False)
-        inst = getattr(request.user, 'perfil', None)
-        tenant = getattr(inst, 'institucion', None)
+
         for i in instances:
+            # toma la institución del padre (Docente) como fuente de verdad
             if getattr(i, 'institucion_id', None) is None:
-                i.institucion = tenant
+                if parent_inst:
+                    i.institucion_id = parent_inst
+                elif getattr(i, 'docente_id', None):
+                    # fallback por si acaso
+                    i.institucion_id = i.docente.institucion_id
+                else:
+                    # último fallback: perfil del usuario (evita dejarlo en NULL)
+                    perfil = getattr(request.user, 'perfil', None)
+                    if perfil and perfil.institucion_id:
+                        i.institucion_id = perfil.institucion_id
             i.save()
+
+        # borra eliminados y guarda M2M si existiera
         for obj in formset.deleted_objects:
             obj.delete()
         formset.save_m2m()
@@ -391,9 +486,33 @@ class DocenteAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     ver_horario_link.short_description = "Horario"
     ver_horario_link.allow_tags = True
 
+    # ⬇️ ESTE método es la clave
+    def save_formset(self, request, form, formset, change):
+        """
+        Django llama al save_formset del ModelAdmin (padre), no al del inline.
+        Aquí aseguramos institucion y docente antes de guardar NoDisponibilidad.
+        """
+        if formset.model is NoDisponibilidad:
+            parent_docente = form.instance  # el Docente que estamos editando
+            instances = formset.save(commit=False)
 
+            for nd in instances:
+                # Garantiza institución desde el docente padre
+                if not getattr(nd, 'institucion_id', None):
+                    nd.institucion_id = parent_docente.institucion_id
+                # Garantiza vínculo al mismo docente padre
+                if not getattr(nd, 'docente_id', None):
+                    nd.docente = parent_docente
+                nd.save()
+
+            # borrar los eliminados y guardar M2M si existiera
+            for obj in formset.deleted_objects:
+                obj.delete()
+            formset.save_m2m()
+        else:
+            # para otros inlines (si los hubiera)
+            formset.save()
 admin.site.register(Docente, DocenteAdmin)
-
 
 # ==========================
 # Aula
