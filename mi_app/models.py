@@ -80,8 +80,7 @@ class Descanso(models.Model):
         ]
 
     def __str__(self):
-        titulo = self.nombre or "Descanso"
-        return f"{titulo} - {self.dia.nombre} {self.hora_inicio}-{self.hora_fin}"
+        return self.nombre or "Descanso"
 
     def clean(self):
         errors = {}

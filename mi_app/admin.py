@@ -221,47 +221,161 @@ admin.site.register(PerfilUsuario, PerfilSoloLecturaAdmin)
 # ==========================
 # Descansi
 # ==========================
+class DescansoMultiForm(forms.ModelForm):
+    # Campo extra: elegir uno o más días
+    dias = forms.ModelMultipleChoiceField(
+        label="Días",
+        queryset=DiaSemana.objects.none(),
+        required=True,
+        help_text="Selecciona uno o más días para asignar este descanso."
+    )
+
+    class Meta:
+        model = Descanso
+        # Solo lo necesario en el form
+        fields = ["nombre", "hora_inicio", "hora_fin"]
+
+    def __init__(self, *args, **kwargs):
+        request = kwargs.pop("request", None)
+        super().__init__(*args, **kwargs)
+
+        # Limitar queryset de días por institución del usuario
+        inst = getattr(getattr(getattr(request, "user", None), "perfil", None), "institucion", None)
+        if inst:
+            self.fields["dias"].queryset = DiaSemana.objects.filter(institucion=inst).order_by("orden")
+        else:
+            self.fields["dias"].queryset = DiaSemana.objects.none()
+
+        # En edición: preseleccionar los “hermanos” (mismo grupo)
+        if self.instance and self.instance.pk:
+            inst_id = getattr(self.instance, "institucion_id", None)
+            usr_id  = getattr(self.instance, "usuario_id", None)
+            hi      = getattr(self.instance, "hora_inicio", None)
+            hf      = getattr(self.instance, "hora_fin", None)
+            nom     = getattr(self.instance, "nombre", "")
+
+            if inst_id and usr_id and hi is not None and hf is not None:
+                hermanos = (Descanso.objects
+                            .filter(institucion_id=inst_id,
+                                    usuario_id=usr_id,
+                                    hora_inicio=hi,
+                                    hora_fin=hf,
+                                    nombre=nom)
+                            .values_list("dia_id", flat=True))
+                self.fields["dias"].initial = list(hermanos)
+
+
 @admin.register(Descanso)
 class DescansoAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
-    list_display = ("nombre", "usuario", "institucion", "dia", "hora_inicio", "hora_fin")
-    list_filter = ("dia__institucion", "dia",)
-    search_fields = ("nombre", "dia__nombre", "usuario__username")
+    form = DescansoMultiForm
+
+    # Listado simple (sin día)
+    list_display = ("nombre", "hora_inicio", "hora_fin")
+    search_fields = ("nombre", "usuario__username")
     ordering = ("dia__orden", "hora_inicio")
 
-    # Suministra initial también aquí (se usa al abrir el formulario "Agregar")
-    def get_changeform_initial_data(self, request):
-        data = super().get_changeform_initial_data(request)
-        if hasattr(request.user, "perfil") and request.user.perfil and request.user.perfil.institucion_id:
-            data.setdefault("institucion", request.user.perfil.institucion_id)
-        data.setdefault("usuario", request.user.id)
-        return data
+    # No mostramos estos campos en el form (los seteamos en save_model)
+    exclude = ("dia", "color_hex", "institucion", "usuario")
 
-    # Usamos get_form base, marcamos campos ocultos y NO requeridos (el modelo los exige pero los fijamos en save_model)
+    # Pasar request al form para limitar días por institución y preseleccionar en change
     def get_form(self, request, obj=None, **kwargs):
-        form = admin.ModelAdmin.get_form(self, request, obj, **kwargs)
-
-        if 'usuario' in form.base_fields:
-            form.base_fields['usuario'].required = False
-            form.base_fields['usuario'].widget = forms.HiddenInput()
-            if not obj:
-                form.base_fields['usuario'].initial = request.user
-
-        if 'institucion' in form.base_fields:
-            form.base_fields['institucion'].required = False
-            form.base_fields['institucion'].widget = forms.HiddenInput()
-            if not obj and hasattr(request.user, 'perfil') and request.user.perfil.institucion_id:
-                form.base_fields['institucion'].initial = request.user.perfil.institucion
-
-        return form
+        FormClass = super().get_form(request, obj, **kwargs)
+        class RequestAwareForm(FormClass):
+            def __init__(self2, *a, **kw):
+                kw["request"] = request
+                super().__init__(*a, **kw)
+        return RequestAwareForm
 
     def save_model(self, request, obj, form, change):
-        # Fijar SIEMPRE antes de validar modelo/guardar
-        if getattr(obj, 'usuario_id', None) is None:
+        # Setear institución/usuario siempre antes de validar/guardar
+        if getattr(obj, "usuario_id", None) is None:
             obj.usuario = request.user
-        if getattr(obj, 'institucion_id', None) is None and hasattr(request.user, 'perfil'):
+        if getattr(obj, "institucion_id", None) is None and hasattr(request.user, "perfil"):
             obj.institucion = request.user.perfil.institucion
-        super().save_model(request, obj, form, change)
 
+        # Datos del “grupo”
+        inst_id = getattr(obj, "institucion_id", None)
+        usr_id  = getattr(obj, "usuario_id", None)
+        hi      = getattr(obj, "hora_inicio", None)
+        hf      = getattr(obj, "hora_fin", None)
+        nom     = getattr(obj, "nombre", "")
+
+        dias_sel = form.cleaned_data.get("dias") or []
+
+        if change:
+            # Sincronizar: crear faltantes y borrar deseleccionados
+            existentes = Descanso.objects.filter(
+                institucion_id=inst_id,
+                usuario_id=usr_id,
+                hora_inicio=hi,
+                hora_fin=hf,
+                nombre=nom,
+            )
+            actuales_ids = set(existentes.values_list("dia_id", flat=True))
+            nuevos_ids   = set(dias_sel.values_list("id", flat=True))
+
+            # Crear nuevos
+            para_crear = nuevos_ids - actuales_ids
+            for dia_id in para_crear:
+                nuevo = Descanso(
+                    institucion_id=inst_id,
+                    usuario_id=usr_id,
+                    dia_id=dia_id,
+                    hora_inicio=hi,
+                    hora_fin=hf,
+                    nombre=nom,
+                )
+                nuevo.full_clean()
+                nuevo.save()
+
+            # Eliminar los que sobraron
+            para_borrar = actuales_ids - nuevos_ids
+            if para_borrar:
+                Descanso.objects.filter(
+                    institucion_id=inst_id,
+                    usuario_id=usr_id,
+                    hora_inicio=hi,
+                    hora_fin=hf,
+                    nombre=nom,
+                    dia_id__in=para_borrar,
+                ).delete()
+
+            # Mantener el registro actual consistente (por si su día ya no está seleccionado)
+            if nuevos_ids and obj.dia_id not in nuevos_ids:
+                obj.dia_id = next(iter(nuevos_ids))
+
+            # Guardar este (actualiza nombre/horas si cambiaron)
+            super().save_model(request, obj, form, change)
+            return
+
+        # ADD: crear un descanso por cada día
+        if not dias_sel:
+            messages.error(request, "Debes seleccionar al menos un día.")
+            return
+
+        creados = 0
+        ultimo = None
+        for d in dias_sel:
+            nuevo = Descanso(
+                institucion=obj.institucion,
+                usuario=obj.usuario,
+                dia=d,  # 👉 día correcto
+                hora_inicio=obj.hora_inicio,
+                hora_fin=obj.hora_fin,
+                nombre=obj.nombre,
+            )
+            nuevo.full_clean()
+            nuevo.save()
+            ultimo = nuevo
+            creados += 1
+
+        messages.success(request, f"Se crearon {creados} descansos (uno por cada día seleccionado).")
+
+        # No guardamos el “obj plantilla”; dejamos que el admin redirija sin error
+        if ultimo:
+            obj.pk = ultimo.pk
+            obj.id = ultimo.id
+        return
 
 # ==========================
 # Inlines
