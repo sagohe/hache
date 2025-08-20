@@ -847,9 +847,10 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
         # 3) Traer datos de la MISMA institución
         asignaturas = (Asignatura.objects
-                       .select_related('semestre__carrera', 'aula', 'institucion')
-                       .prefetch_related('docentes')
-                       .filter(institucion=inst))
+                        .select_related('semestre__carrera', 'aula', 'institucion')
+                        .prefetch_related('docentes')
+                        .filter(institucion=inst)
+                        .exclude(nombre="DESCANSO"))
 
         errores = []
 
