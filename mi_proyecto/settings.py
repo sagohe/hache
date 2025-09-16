@@ -13,26 +13,25 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 from pathlib import Path
 import os
 import dj_database_url
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 #Redirigir login si no ha iniciado sesion
 LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/admin/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-29gvogycado=$j4j#$)0n$7-ee7s-z#8z44kt=i@=i%gep%t9#'
+# secret y debug desde env
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-for-dev-only')
+DEBUG = os.getenv('DEBUG', 'False').lower() in ('1', 'true', 'yes')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = ['hache.onrender.com', 'localhost', '127.0.0.1']
-
-
+# ALLOWED_HOSTS desde env (coma-separados)
+allowed = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1')
+ALLOWED_HOSTS = [h.strip() for h in allowed.split(',') if h.strip()]
 # Application definition
 
 INSTALLED_APPS = [
@@ -85,12 +84,11 @@ WSGI_APPLICATION = 'mi_proyecto.wsgi.application'
 #nuestra base de datos sqlite se llama horario_intep.db
 DATABASES = {
     'default': dj_database_url.config(
-        default='postgresql://db_hache_2uut_user:QjRLUHF1wFzEifkFV42i5Kxih8gwNjnR@dpg-d2cc0jh5pdvs73dh6q00-a.oregon-postgres.render.com/db_hache_2uut',
-        conn_max_age=600
+        default=os.getenv('DATABASE_URL'),
+        conn_max_age=600,
+        ssl_require=True
     )
 }
-
-
 # Password validation
 # https://docs.djangoproject.com/en/3.2/ref/settings/#auth-password-validators
 
