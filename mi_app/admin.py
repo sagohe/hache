@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.contrib.admin import TabularInline
 from django.shortcuts import redirect
 from django.urls import path
@@ -475,7 +476,7 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     search_fields = ('nombre','semestre__numero','docentes__nombre')
 
     fieldsets = (
-        (None, {'fields': ('institucion', 'nombre','semestre','jornada','aula','docentes')}),
+        (None, {'fields': ('nombre','semestre','jornada','aula','docentes')}),
         ('Carga y cálculo', {'fields': ('horas_totales','semanas','explicacion_horas')}),
     )
 
@@ -494,6 +495,29 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     def mostrar_jornadas(self, obj):
         return obj.jornada
     mostrar_jornadas.short_description = "Jornada"
+
+    def save_model(self, request, obj, form, change):
+        # Si no se proporcionó institucion, intentamos asignarla con varias estrategias:
+        if not getattr(obj, 'institucion_id', None):
+            # 1) Si el request ya trae una institucion (ej. por TenantScopedAdminMixin)
+            inst = getattr(request, 'institucion', None)
+            if inst:
+                obj.institucion = inst
+            else:
+                # 2) Si el usuario tiene una relación (ej. request.user.institucion o profile)
+                inst = getattr(request.user, 'institucion', None)
+                if inst:
+                    obj.institucion = inst
+                else:
+                    # 3) Si sólo hay una Institucion en la BD, usarla (útil en instancias pequeñas)
+                    from .models import Institucion
+                    institutos = Institucion.objects.all()
+                    if institutos.count() == 1:
+                        obj.institucion = institutos.first()
+                    else:
+                        # 4) Si no logramos deducirla, lanzar un error de validación para forzar selección en otro flujo
+                        raise ValidationError("No se pudo determinar la institución. Añade el campo 'institucion' al formulario o selecciona la institución manualmente.")
+        super().save_model(request, obj, form, change)
 
 try:
     admin.site.unregister(Asignatura)
