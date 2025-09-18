@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, time
 from .models import NoDisponibilidad, Horario, Aula, Descanso
-
+from django.core.exceptions import ObjectDoesNotExist
 
 def obtener_bloques_por_jornada(jornada):
     rangos = {
@@ -18,9 +18,13 @@ def calcular_mps(asignatura):
       - exacto: bool (True si mps_original ya era múltiplo de 15 y sin decimales)
       - detalle: dict con info para mensajes (horas/semana decimales, diferencia, etc.)
     """
-    inst = asignatura.institucion
-    if not inst or not hasattr(inst, "duracion_hora_minutos"):
-        # fallback prudente
+    # lectura segura de la relación institucion
+    try:
+        inst = asignatura.institucion
+    except ObjectDoesNotExist:
+        inst = None
+
+    if not inst or not getattr(inst, "duracion_hora_minutos", None):
         dh = 45
     else:
         dh = inst.duracion_hora_minutos
@@ -188,8 +192,14 @@ def asignar_horario_automatico(
         return _ret(False, "Asignatura sin docente")
 
     # ===== parámetros de institución y carga =====
-    inst_ctx = institucion or getattr(asignatura, "institucion", None)
+    try:
+        inst_from_asig = asignatura.institucion
+    except ObjectDoesNotExist:
+        inst_from_asig = None
+
+    inst_ctx = institucion or inst_from_asig
     dur_hora = getattr(inst_ctx, "duracion_hora_minutos", 45)
+
     horas_totales = getattr(asignatura, "horas_totales", 0) or 0
     semanas = getattr(asignatura, "semanas", 0) or 0
     if horas_totales <= 0:
