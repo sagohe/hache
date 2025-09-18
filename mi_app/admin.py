@@ -475,7 +475,7 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     search_fields = ('nombre','semestre__numero','docentes__nombre')
 
     fieldsets = (
-        (None, {'fields': ('nombre','semestre','jornada','aula','docentes')}),
+        (None, {'fields': ('institucion', 'nombre','semestre','jornada','aula','docentes')}),
         ('Carga y cálculo', {'fields': ('horas_totales','semanas','explicacion_horas')}),
     )
 

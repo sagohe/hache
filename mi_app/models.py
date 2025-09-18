@@ -1,5 +1,5 @@
 from django.db import models
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from datetime import time
 from django.contrib.auth.models import User
 
@@ -214,8 +214,15 @@ class Asignatura(models.Model):
     def clean(self):
         if not self.semanas or not self.horas_totales:
             return
-        
-        dur_hora = getattr(self.institucion, "duracion_hora_minutos", 45)
+
+        # lectura segura de la institucion (evita RelatedObjectDoesNotExist)
+        try:
+            inst = self.institucion
+        except ObjectDoesNotExist:
+            inst = None
+
+        dur_hora = getattr(inst, "duracion_hora_minutos", 45)
+
         minutos_totales = self.horas_totales * dur_hora
         mps = minutos_totales / self.semanas
 
