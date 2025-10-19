@@ -222,23 +222,12 @@ class Asignatura(models.Model):
             inst = None
 
         dur_hora = getattr(inst, "duracion_hora_minutos", 45)
-
         minutos_totales = self.horas_totales * dur_hora
         mps = minutos_totales / self.semanas
 
-        bloques = mps / 15.0
-        bloques_redondeados = int(bloques + 0.5)
-        minutos_redondeados = bloques_redondeados * 15
-
-        if minutos_redondeados != mps:
-            raise ValidationError({
-                "horas_totales": (
-                    f"⚠️ Ojo: {self.horas_totales} horas en {self.semanas} semanas "
-                    f"con hora de {dur_hora} min = {mps:.1f} min/semana. "
-                    f"Se ajustará automáticamente a {minutos_redondeados} min/semana "
-                    f"(redondeado al múltiplo de 15 más cercano)."
-                )
-            })
+        # Ya no se lanza error, solo se calcula para mostrar advertencia desde el admin
+        self._minutos_por_semana = mps  # guardamos en atributo temporal para usarlo luego
+        self._es_multiplo_15 = (int(round(mps)) % 15 == 0)
 
     class Meta:
         constraints = [

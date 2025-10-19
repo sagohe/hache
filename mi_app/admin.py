@@ -435,7 +435,7 @@ def _ayuda_carga_sem(obj):
             "<ul>"
             "<li>Horas totales × min/hora institucional = <b>minutos totales</b></li>"
             "<li>Minutos totales ÷ semanas = <b>minutos/semana</b></li>"
-            "<li>Se ajusta al múltiplo de 15 min más cercano (mínimo 60)</li>"
+            "<li>Se recomienda usar múltiplos de 15 min, pero se conservarán tus valores exactos.</li>"
             "</ul>"
         )
 
@@ -447,26 +447,34 @@ def _ayuda_carga_sem(obj):
     dh = getattr(obj.institucion, "duracion_hora_minutos", 45)
     mt = obj.horas_totales * dh
     mps = mt / obj.semanas
-    bloques = int(mps / 15.0 + 0.5)
-    mps_red = max(60, bloques * 15)
 
-    # PRE-FORMATEA números a strings
-    mps_fmt = f"{mps:.1f}"
-    hsem_fmt = f"{mps_red/60.0:.2f}"
+    # calcular múltiplo de 15 solo para sugerir (no usar)
+    bloques = mps / 15.0
+    bloques_redondeados = int(round(bloques))
+    sugerido = bloques_redondeados * 15
 
-    return format_html(
-        "<div>"
-        "<p>👉 Indicó <b>{ht}</b> horas en <b>{ss}</b> semanas, con hora institucional de <b>{dh}</b> min.</p>"
-        "<ul>"
-        "<li>Minutos totales: <b>{mt}</b></li>"
-        "<li>Minutos/semanas: <b>{mps_fmt}</b> Minutos semanales </li>"
-        "<li>Ajuste: <b>{mps_red}</b> min/sem "
-        "(≈ {hsem_fmt} horas de {dh} min)</li>"
-        "</ul>"
-        "</div>",
-        ht=obj.horas_totales, ss=obj.semanas, dh=dh, mt=mt,
-        mps_fmt=mps_fmt, mps_red=mps_red, hsem_fmt=hsem_fmt
+    mensaje = (
+        f"<div>"
+        f"<p>👉 Indicó <b>{obj.horas_totales}</b> horas en <b>{obj.semanas}</b> semanas, "
+        f"con hora institucional de <b>{dh}</b> min.</p>"
+        f"<ul>"
+        f"<li>Minutos totales: <b>{mt}</b></li>"
+        f"<li>Minutos/semana: <b>{mps:.2f}</b></li>"
+        f"</ul>"
     )
+
+    if mps % 15 != 0:
+        mensaje += (
+            f"<p style='color:#b58900;'>⚠️ Se recomienda usar un múltiplo de 15 min "
+            f"(por ejemplo, <b>{sugerido} min/semana</b>) para facilitar la asignación, "
+            f"pero se conservarán tus valores exactos.</p>"
+        )
+    else:
+        mensaje += "<p>✅ Es un valor exacto en múltiplos de 15 min.</p>"
+
+    mensaje += "</div>"
+    return format_html(mensaje)
+
 
 
 class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
@@ -495,28 +503,62 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     def mostrar_jornadas(self, obj):
         return obj.jornada
     mostrar_jornadas.short_description = "Jornada"
+    
+    def message_user(self, request, message, level=messages.INFO, extra_tags='', fail_silently=False):
+        if isinstance(message, str):
+            message = message.replace("El asignatura", "La asignatura")
+            # Elimina etiquetas HTML
+            message = strip_tags(message)
+        super().message_user(request, message, level, extra_tags, fail_silently)
+
 
     def save_model(self, request, obj, form, change):
-        # Si no se proporcionó institucion, intentamos asignarla con varias estrategias:
+        from django.contrib import messages
+        from django.core.exceptions import ValidationError
+        # Importamos la función que usa exactamente la misma lógica de cálculo
+        from .utils import calcular_mps
+
+        # --- Asignar institución automáticamente (igual que antes) ---
         if not getattr(obj, 'institucion_id', None):
-            # 1) Si el request ya trae una institucion (ej. por TenantScopedAdminMixin)
             inst = getattr(request, 'institucion', None)
             if inst:
                 obj.institucion = inst
             else:
-                # 2) Si el usuario tiene una relación (ej. request.user.institucion o profile)
                 inst = getattr(request.user, 'institucion', None)
                 if inst:
                     obj.institucion = inst
                 else:
-                    # 3) Si sólo hay una Institucion en la BD, usarla (útil en instancias pequeñas)
                     from .models import Institucion
                     institutos = Institucion.objects.all()
                     if institutos.count() == 1:
                         obj.institucion = institutos.first()
                     else:
-                        # 4) Si no logramos deducirla, lanzar un error de validación para forzar selección en otro flujo
-                        raise ValidationError("No se pudo determinar la institución. Añade el campo 'institucion' al formulario o selecciona la institución manualmente.")
+                        raise ValidationError(
+                            "No se pudo determinar la institución. Añade el campo 'institucion' al formulario o selecciona la institución manualmente."
+                        )
+
+        # --- Mostrar mensaje solo si los minutos/semana NO son exactos (no múltiplo de 15) ---
+        try:
+            # calcular_mps devuelve la misma lógica que usa asignar_horario_automatico
+            info = calcular_mps(obj)
+            mps_original = info.get("mps_original", 0.0)
+            mps_ajustado = info.get("mps_ajustado", 0)
+            exacto = info.get("exacto", False)
+
+            if not exacto:
+                horas = mps_ajustado // 60
+                mins = mps_ajustado % 60
+                msg = (
+                    f"⚠️ La asignatura '{obj.nombre}' tiene {mps_original:.1f} minutos/semana (no es múltiplo de 15). "
+                    f"En los cálculos automáticos se aproximará a {mps_ajustado} minutos/semana "
+                    f"({horas} h {mins} min) para mantener la cuadrícula de 15 minutos."
+                )
+                messages.warning(request, msg)
+        except Exception:
+            # Si algo falla en el cálculo mostramos nada y permitimos guardar (no interrumpir)
+            pass
+
+        # --- Guardado normal (final) ---
         super().save_model(request, obj, form, change)
 
 try:
