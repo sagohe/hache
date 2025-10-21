@@ -562,6 +562,24 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             return
         super().save_related(request, form, formsets, change)
         
+    def response_add(self, request, obj, post_url_continue=None):
+        # Si hubo duplicado, no mostrar el mensaje de éxito ni redirigir
+        if getattr(self, "_duplicado_detectado", False):
+            # Limpiar mensajes de éxito que Django haya preparado
+            storage = messages.get_messages(request)
+            storage.used = True
+            # Redibujar el formulario sin recargar toda la página
+            return self.render_change_form(
+                request,
+                context=self.get_changeform_initial_data(request),
+                add=True,
+                obj=obj,
+                form=self.get_form(request)(instance=obj),
+                change=False,
+            )
+        # Si no hubo duplicado, seguir con el flujo normal
+        return super().response_add(request, obj, post_url_continue)
+
 try:
     admin.site.unregister(Asignatura)
 except admin.sites.NotRegistered:
