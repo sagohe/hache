@@ -526,15 +526,17 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 if institutos.count() == 1:
                     obj.institucion = institutos.first()
                 else:
-                    raise ValidationError(
-                        "No se pudo determinar la institución. Añade el campo 'institucion' al formulario o selecciona la institución manualmente."
+                    messages.error(
+                        request,
+                        "❌ No se pudo determinar la institución. Selecciónala manualmente."
                     )
+                    return  # detenemos el guardado sin error
 
         # --- Mostrar advertencia si minutos/semana no son múltiplos de 15 ---
         try:
             info = calcular_mps(obj)
             if not info.get("exacto", False):
-                # ⚠️ Si no quieres mostrar esta advertencia, simplemente elimina este bloque completo
+                # Si no quieres mostrar nada, puedes dejar este bloque vacío
                 pass
         except Exception:
             pass
@@ -544,17 +546,12 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             with transaction.atomic():
                 super().save_model(request, obj, form, change)
         except IntegrityError:
-            # Mostramos mensaje de error amigable
+            # Mostrar mensaje amigable sin lanzar error ni redireccionar
             messages.error(
                 request,
                 f"❌ Ya existe una asignatura llamada '{obj.nombre}' en el semestre '{obj.semestre}' de esta institución.",
             )
-
-            # Esto evita que Django siga al redirect del admin (que causaba el error 500)
-            # Simplemente recarga la página con los datos del formulario y el mensaje mostrado.
-            form.add_error(None, "Esta asignatura ya existe para el semestre seleccionado.")
-            raise ValidationError("Duplicado detectado")
-
+            return  # detenemos el guardado sin provocar excepción
 try:
     admin.site.unregister(Asignatura)
 except admin.sites.NotRegistered:
