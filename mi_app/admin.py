@@ -599,13 +599,20 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 "has_view_permission": True,
                 "has_editable_inline_admin_formsets": False,
                 "app_label": opts.app_label,
-                # 🔧 Variables necesarias para Jazzmin y botones del admin
-                "save_as": False,
+
+                # 🔧 Variables requeridas por Jazzmin y Django admin
+                "save_as": self.save_as,
                 "save_on_top": self.save_on_top,
                 "show_save": True,
                 "show_save_and_continue": True,
                 "show_save_and_add_another": True,
                 "show_delete": False,
+
+                # 🔧 Variables que faltaban y causaban el KeyError
+                "has_add_permission": self.has_add_permission(request),
+                "has_change_permission": self.has_change_permission(request),
+                "has_delete_permission": self.has_delete_permission(request, obj),
+                "has_view_permission": self.has_view_permission(request, obj),
             }
 
             return TemplateResponse(
@@ -616,8 +623,6 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
         # Si no hubo duplicado, seguir con el flujo normal
         return super().response_add(request, obj, post_url_continue)
-
-
 
 try:
     admin.site.unregister(Asignatura)
