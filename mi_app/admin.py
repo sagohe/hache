@@ -516,6 +516,8 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
  
     def save_model(self, request, obj, form, change):
+        self._duplicado_detectado = False  # bandera interna
+
         # --- Asignar institución automáticamente ---
         if not getattr(obj, 'institucion_id', None):
             inst = getattr(request, 'institucion', None) or getattr(request.user, 'institucion', None)
@@ -537,7 +539,7 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         try:
             info = calcular_mps(obj)
             if not info.get("exacto", False):
-                # No mostrar nada si no se desea advertencia
+                # no mostrar advertencia por ahora
                 pass
         except Exception:
             pass
@@ -547,14 +549,18 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             with transaction.atomic():
                 super().save_model(request, obj, form, change)
         except IntegrityError:
-            # Si hay duplicado, mostrar mensaje y detener flujo completamente
+            self._duplicado_detectado = True  # marcamos bandera
             messages.error(
                 request,
                 f"❌ Ya existe una asignatura llamada '{obj.nombre}' en el semestre '{obj.semestre}' de esta institución.",
             )
-            # Importante: marcar el formulario como no guardado
-            form._save_m2m = lambda: None  # evita el intento de guardar M2M
-            return  # no seguimos guardando nada
+            return  # detenemos aquí
+
+    def save_related(self, request, form, formsets, change):
+        # Evitar guardar relaciones si se detectó duplicado
+        if getattr(self, "_duplicado_detectado", False):
+            return
+        super().save_related(request, form, formsets, change)
         
 try:
     admin.site.unregister(Asignatura)
