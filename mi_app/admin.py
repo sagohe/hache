@@ -567,16 +567,31 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         if getattr(self, "_duplicado_detectado", False):
             # Limpiar mensajes de éxito que Django haya preparado
             storage = messages.get_messages(request)
-            storage.used = True
-            # Redibujar el formulario sin recargar toda la página
-            return self.render_change_form(
-                request,
-                context=self.get_changeform_initial_data(request),
-                add=True,
-                obj=obj,
-                form=self.get_form(request)(instance=obj),
-                change=False,
-            )
+            list(storage)  # forzamos la lectura para vaciar la cola
+
+            # Volver a mostrar el formulario sin redirigir
+            form_class = self.get_form(request)
+            form = form_class(instance=obj)
+
+            context = {
+                **self.admin_site.each_context(request),
+                "opts": self.model._meta,
+                "add": True,
+                "change": False,
+                "save_as": False,
+                "has_view_permission": self.has_view_permission(request),
+                "has_editable_inline_admin_formsets": False,
+                "has_add_permission": self.has_add_permission(request),
+                "has_change_permission": self.has_change_permission(request),
+                "has_delete_permission": self.has_delete_permission(request),
+                "form": form,
+                "original": obj,
+                "title": "Agregar asignatura (duplicado detectado)",
+                "show_save": True,
+            }
+
+            return self.render_change_form(request, context, add=True, change=False, obj=obj)
+
         # Si no hubo duplicado, seguir con el flujo normal
         return super().response_add(request, obj, post_url_continue)
 
