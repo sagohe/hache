@@ -570,12 +570,12 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             storage = messages.get_messages(request)
             storage.used = True
 
-            # Preparar contexto correcto para recargar el formulario
+            # Preparar formulario y opciones del modelo
+            opts = self.model._meta
             form_class = self.get_form(request)
             form = form_class(instance=obj)
 
-            # Crear contexto completo para renderizar el formulario sin errores
-            opts = self.model._meta
+            # Crear adminForm (estructura que el admin usa para renderizar)
             adminForm = helpers.AdminForm(
                 form,
                 list(self.get_fieldsets(request, obj)),
@@ -583,8 +583,8 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 self.get_readonly_fields(request, obj),
                 model_admin=self,
             )
-            media = self.media + adminForm.media
 
+            # Preparar contexto completo con todas las claves necesarias
             context = {
                 **self.admin_site.each_context(request),
                 "title": f"Añadir {opts.verbose_name}",
@@ -593,10 +593,15 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 "original": None,
                 "is_popup": False,
                 "to_field": None,
-                "media": media,
+                "media": self.media + adminForm.media,
                 "inline_admin_formsets": [],
                 "errors": helpers.AdminErrorList(form, []),
-                "app_label": opts.app_label,  # 🔹 necesario para evitar el NoReverseMatch
+                "opts": opts,  # ✅ ESTA ES LA CLAVE FALTANTE
+                "add": True,
+                "change": False,
+                "has_view_permission": True,
+                "has_editable_inline_admin_formsets": False,
+                "app_label": opts.app_label,  # útil para evitar errores adicionales
             }
 
             return TemplateResponse(
@@ -607,6 +612,7 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
         # Si no hubo duplicado, seguir con el flujo normal
         return super().response_add(request, obj, post_url_continue)
+
 
 try:
     admin.site.unregister(Asignatura)
