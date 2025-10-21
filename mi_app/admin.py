@@ -9,6 +9,8 @@ from django.utils.html import format_html, strip_tags
 from django import forms
 from datetime import time as _time
 from django.db.models.functions import Coalesce
+from django.db import IntegrityError, transaction
+from .utils import calcular_mps
 from .models import (
     Institucion, PerfilUsuario,
     Docente, Asignatura, NoDisponibilidad, Aula,
@@ -513,53 +515,45 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
 
     def save_model(self, request, obj, form, change):
-        from django.contrib import messages
-        from django.core.exceptions import ValidationError
-        # Importamos la función que usa exactamente la misma lógica de cálculo
-        from .utils import calcular_mps
-
-        # --- Asignar institución automáticamente (igual que antes) ---
+        # --- Asignar institución automáticamente ---
         if not getattr(obj, 'institucion_id', None):
-            inst = getattr(request, 'institucion', None)
+            inst = getattr(request, 'institucion', None) or getattr(request.user, 'institucion', None)
             if inst:
                 obj.institucion = inst
             else:
-                inst = getattr(request.user, 'institucion', None)
-                if inst:
-                    obj.institucion = inst
+                from .models import Institucion
+                institutos = Institucion.objects.all()
+                if institutos.count() == 1:
+                    obj.institucion = institutos.first()
                 else:
-                    from .models import Institucion
-                    institutos = Institucion.objects.all()
-                    if institutos.count() == 1:
-                        obj.institucion = institutos.first()
-                    else:
-                        raise ValidationError(
-                            "No se pudo determinar la institución. Añade el campo 'institucion' al formulario o selecciona la institución manualmente."
-                        )
+                    raise ValidationError(
+                        "No se pudo determinar la institución. Añade el campo 'institucion' al formulario o selecciona la institución manualmente."
+                    )
 
-        # --- Mostrar mensaje solo si los minutos/semana NO son exactos (no múltiplo de 15) ---
+        # --- Mostrar advertencia si minutos/semana no son múltiplos de 15 ---
         try:
-            # calcular_mps devuelve la misma lógica que usa asignar_horario_automatico
             info = calcular_mps(obj)
-            mps_original = info.get("mps_original", 0.0)
-            mps_ajustado = info.get("mps_ajustado", 0)
-            exacto = info.get("exacto", False)
-
-            if not exacto:
-                horas = mps_ajustado // 60
-                mins = mps_ajustado % 60
-                msg = (
-                    f"⚠️ La asignatura '{obj.nombre}' tiene {mps_original:.1f} minutos/semana (no es múltiplo de 15). "
-                    f"En los cálculos automáticos se aproximará a {mps_ajustado} minutos/semana "
-                    f"({horas} h {mins} min) para mantener la cuadrícula de 15 minutos."
-                )
-                messages.warning(request, msg)
+            if not info.get("exacto", False):
+                # ⚠️ Si no quieres mostrar esta advertencia, simplemente elimina este bloque completo
+                pass
         except Exception:
-            # Si algo falla en el cálculo mostramos nada y permitimos guardar (no interrumpir)
             pass
 
-        # --- Guardado normal (final) ---
-        super().save_model(request, obj, form, change)
+        # --- Guardado con control de duplicados ---
+        try:
+            with transaction.atomic():
+                super().save_model(request, obj, form, change)
+        except IntegrityError:
+            # Mostramos mensaje de error amigable
+            messages.error(
+                request,
+                f"❌ Ya existe una asignatura llamada '{obj.nombre}' en el semestre '{obj.semestre}' de esta institución.",
+            )
+
+            # Esto evita que Django siga al redirect del admin (que causaba el error 500)
+            # Simplemente recarga la página con los datos del formulario y el mensaje mostrado.
+            form.add_error(None, "Esta asignatura ya existe para el semestre seleccionado.")
+            raise ValidationError("Duplicado detectado")
 
 try:
     admin.site.unregister(Asignatura)
