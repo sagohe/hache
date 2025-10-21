@@ -570,43 +570,38 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             storage = messages.get_messages(request)
             storage.used = True
 
-            # Preparar un formulario limpio con los datos actuales
-            ModelForm = self.get_form(request)
-            form = ModelForm(instance=obj)
+            # Preparar contexto correcto para recargar el formulario
+            form_class = self.get_form(request)
+            form = form_class(instance=obj)
 
-            # Generar el contexto mínimo que espera render_change_form
+            # Crear contexto completo para renderizar el formulario sin errores
+            opts = self.model._meta
+            adminForm = helpers.AdminForm(
+                form,
+                list(self.get_fieldsets(request, obj)),
+                self.get_prepopulated_fields(request, obj),
+                self.get_readonly_fields(request, obj),
+                model_admin=self,
+            )
+            media = self.media + adminForm.media
+
             context = {
                 **self.admin_site.each_context(request),
-                'title': 'Agregar asignatura',
-                'adminform': helpers.AdminForm(
-                    form,
-                    self.get_fieldsets(request, obj),
-                    self.get_prepopulated_fields(request, obj),
-                    self.get_readonly_fields(request, obj),
-                    model_admin=self,
-                ),
-                'object_id': None,
-                'original': None,
-                'is_popup': False,
-                'to_field': None,
-                'add': True,
-                'change': False,
-                'has_add_permission': self.has_add_permission(request),
-                'has_change_permission': self.has_change_permission(request),
-                'has_view_permission': self.has_view_permission(request),
-                'has_delete_permission': self.has_delete_permission(request),
-                'save_as': self.save_as,
-                'show_save': True,
-                'inline_admin_formsets': [],  # sin inlines
+                "title": f"Añadir {opts.verbose_name}",
+                "adminform": adminForm,
+                "object_id": None,
+                "original": None,
+                "is_popup": False,
+                "to_field": None,
+                "media": media,
+                "inline_admin_formsets": [],
+                "errors": helpers.AdminErrorList(form, []),
+                "app_label": opts.app_label,  # 🔹 necesario para evitar el NoReverseMatch
             }
 
             return TemplateResponse(
                 request,
-                self.change_form_template or [
-                    f"admin/{self.model._meta.app_label}/{self.model._meta.model_name}/change_form.html",
-                    f"admin/{self.model._meta.app_label}/change_form.html",
-                    "admin/change_form.html",
-                ],
+                "admin/change_form.html",
                 context,
             )
 
