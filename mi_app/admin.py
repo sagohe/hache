@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
-from django.contrib.admin import TabularInline
+from django.contrib.admin import TabularInline, helpers
 from django.shortcuts import redirect
 from django.urls import path
 from django.db import transaction
@@ -11,6 +11,7 @@ from datetime import time as _time
 from django.db.models.functions import Coalesce
 from django.db import IntegrityError, transaction
 from .utils import calcular_mps
+from django.template.response import TemplateResponse
 from .models import (
     Institucion, PerfilUsuario,
     Docente, Asignatura, NoDisponibilidad, Aula,
@@ -567,30 +568,47 @@ class AsignaturaAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         if getattr(self, "_duplicado_detectado", False):
             # Limpiar mensajes de éxito que Django haya preparado
             storage = messages.get_messages(request)
-            list(storage)  # forzamos la lectura para vaciar la cola
+            storage.used = True
 
-            # Volver a mostrar el formulario sin redirigir
-            form_class = self.get_form(request)
-            form = form_class(instance=obj)
+            # Preparar un formulario limpio con los datos actuales
+            ModelForm = self.get_form(request)
+            form = ModelForm(instance=obj)
 
+            # Generar el contexto mínimo que espera render_change_form
             context = {
                 **self.admin_site.each_context(request),
-                "opts": self.model._meta,
-                "add": True,
-                "change": False,
-                "save_as": False,
-                "has_view_permission": self.has_view_permission(request),
-                "has_editable_inline_admin_formsets": False,
-                "has_add_permission": self.has_add_permission(request),
-                "has_change_permission": self.has_change_permission(request),
-                "has_delete_permission": self.has_delete_permission(request),
-                "form": form,
-                "original": obj,
-                "title": "Agregar asignatura (duplicado detectado)",
-                "show_save": True,
+                'title': 'Agregar asignatura',
+                'adminform': helpers.AdminForm(
+                    form,
+                    self.get_fieldsets(request, obj),
+                    self.get_prepopulated_fields(request, obj),
+                    self.get_readonly_fields(request, obj),
+                    model_admin=self,
+                ),
+                'object_id': None,
+                'original': None,
+                'is_popup': False,
+                'to_field': None,
+                'add': True,
+                'change': False,
+                'has_add_permission': self.has_add_permission(request),
+                'has_change_permission': self.has_change_permission(request),
+                'has_view_permission': self.has_view_permission(request),
+                'has_delete_permission': self.has_delete_permission(request),
+                'save_as': self.save_as,
+                'show_save': True,
+                'inline_admin_formsets': [],  # sin inlines
             }
 
-            return self.render_change_form(request, context, add=True, change=False, obj=obj)
+            return TemplateResponse(
+                request,
+                self.change_form_template or [
+                    f"admin/{self.model._meta.app_label}/{self.model._meta.model_name}/change_form.html",
+                    f"admin/{self.model._meta.app_label}/change_form.html",
+                    "admin/change_form.html",
+                ],
+                context,
+            )
 
         # Si no hubo duplicado, seguir con el flujo normal
         return super().response_add(request, obj, post_url_continue)
