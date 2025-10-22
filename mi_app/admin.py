@@ -18,7 +18,7 @@ from .models import (
     CarreraUniversitaria, Semestre, DiaSemana, Horario, Descanso
 )
 from .utils import asignar_horario_automatico
-
+import gc,time
 # === auth admin visibles solo para superuser ===
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin, GroupAdmin
@@ -933,17 +933,10 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         return custom_urls + urls
 
     def generar_horarios(self, request):
-        """
-        Genera horarios:
-        - Staff normal: en SU institución (tomada del perfil).
-        - Superusuario: puede elegir institución con ?institucion=<id>. Si hay solo una,
-          se usa automáticamente. Si hay varias y no pasa el parámetro, se le pide elegir.
-        """
-
+        """Genera horarios en lotes pequeños para evitar OOM en Render"""
 
         # 1) Resolver institución
         if request.user.is_superuser:
-            inst = None
             inst_id = request.GET.get("institucion")
             if inst_id:
                 inst = Institucion.objects.filter(id=inst_id).first()
@@ -951,94 +944,83 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                     messages.error(request, "La institución indicada no existe.")
                     return redirect("..")
             else:
-                total = Institucion.objects.count()
-                if total == 0:
+                instituciones = list(Institucion.objects.all())
+                if not instituciones:
                     messages.error(request, "No hay instituciones creadas.")
                     return redirect("..")
-                elif total == 1:
-                    inst = Institucion.objects.first()
+                if len(instituciones) == 1:
+                    inst = instituciones[0]
                 else:
-                    opciones = ", ".join(f"{i.id} - {i.nombre}" for i in Institucion.objects.all())
-                    messages.error(
-                        request,
-                        f"Superusuario: especifica la institución con ?institucion=<id>. Opciones: {opciones}"
-                    )
+                    opciones = ", ".join(f"{i.id} - {i.nombre}" for i in instituciones)
+                    messages.error(request, f"Superusuario: usa ?institucion=<id>. Opciones: {opciones}")
                     return redirect("..")
         else:
             if hasattr(request.user, "perfil") and request.user.perfil and request.user.perfil.institucion_id:
                 inst = request.user.perfil.institucion
             else:
-                messages.error(request, "Tu usuario no tiene institución asociada. Pídele al admin que la configure.")
+                messages.error(request, "Tu usuario no tiene institución asociada.")
                 return redirect("..")
 
-        # 2) Limpiar solo los horarios del usuario + institución
+        # 2) Limpiar horarios anteriores
         Horario.objects.filter(usuario=request.user, institucion=inst).delete()
 
-        # 3) Traer datos de la MISMA institución
-        asignaturas = (Asignatura.objects
-                        .select_related('semestre__carrera', 'aula', 'institucion')
-                        .prefetch_related('docentes')
-                        .filter(institucion=inst)
-                        .exclude(nombre="DESCANSO"))
-
-        errores = []
-
-        todos_los_horarios = list(
-            Horario.objects
-            .filter(usuario=request.user, institucion=inst)
-            .select_related('docente', 'aula', 'asignatura__semestre__carrera', 'institucion')
+        # 3) Cargar datos base
+        asignaturas = list(
+            Asignatura.objects
+            .select_related('semestre__carrera')
+            .prefetch_related('docentes')
+            .filter(institucion=inst)
+            .exclude(nombre="DESCANSO")
         )
 
-        # NoDisponibilidad filtrada por institución si tiene FK
-        no_disp_qs = NoDisponibilidad.objects.select_related('docente')
-        if hasattr(NoDisponibilidad, "institucion_id"):
-            no_disp_qs = no_disp_qs.filter(institucion=inst)
-        todas_las_no_disponibilidades = list(no_disp_qs)
+        errores = []
+        todos_los_horarios = []
+        todas_las_no_disponibilidades = list(
+            NoDisponibilidad.objects.filter(institucion=inst).select_related('docente')
+        )
+        todos_los_descansos = list(
+            Descanso.objects.filter(institucion=inst, usuario=request.user)
+        )
 
-        # Descansos del usuario en la institución
-        descansos_qs = Descanso.objects.filter(institucion=inst, usuario=request.user).select_related('dia')
-        todos_los_descansos = list(descansos_qs)
+        # === Función auxiliar ===
+        def dividir_en_lotes(lista, tamano):
+            for i in range(0, len(lista), tamano):
+                yield lista[i:i+tamano]
 
-        with transaction.atomic():
-            for asignatura in asignaturas:
-                ok, motivo = asignar_horario_automatico(
-                    asignatura=asignatura,
-                    horarios=todos_los_horarios,
-                    no_disponibilidades=todas_las_no_disponibilidades,
-                    descansos=todos_los_descansos,
-                    usuario=request.user,
-                    institucion=inst,     # 👈 clave
-                    con_motivo=True,
-                )
-                if not ok:
-                    errores.append(f"{asignatura.nombre} → {motivo}")
+        # === Procesamiento por lotes ===
+        for lote in dividir_en_lotes(asignaturas, 20):
+            with transaction.atomic():
+                for asignatura in lote:
+                    ok, motivo = asignar_horario_automatico(
+                        asignatura=asignatura,
+                        horarios=todos_los_horarios,
+                        no_disponibilidades=todas_las_no_disponibilidades,
+                        descansos=todos_los_descansos,
+                        usuario=request.user,
+                        institucion=inst,
+                        con_motivo=True,
+                    )
+                    if not ok:
+                        errores.append(f"{asignatura.nombre} → {motivo}")
+            gc.collect()
+            time.sleep(0.2)
 
-        # ==== Materializar DESCANSOS como filas Horario (para que se vean en la grilla) ====
-        # Asignatura especial "DESCANSO" (una por institución)
+        # ==== Materializar DESCANSOS ====
         asig_descanso, _ = Asignatura.objects.get_or_create(
             institucion=inst,
             nombre="DESCANSO",
-            semestre=None,  # tu modelo permite null/blank en semestre
-            defaults={
-                "jornada": "Mañana",
-                # Como ahora ya no existe 'intensidad_horaria', usa los nuevos campos:
-                "horas_totales": 0,   # no se usa para pintar el bloque de descanso
-                "semanas": 16,        # valor neutro
-            },
+            defaults={"horas_totales": 0, "semanas": 16}
         )
 
-        # Placeholders (uno por institución). Evita duplicados con get_or_create
         aula_placeholder, _ = Aula.objects.get_or_create(institucion=inst, nombre="—")
         docente_placeholder, _ = Docente.objects.get_or_create(
             institucion=inst,
-            correo="placeholder@hache.local",  # cumple UniqueConstraint (institucion, correo)
+            correo="placeholder@hache.local",
             defaults={"nombre": "—"},
         )
 
-        # Crear filas Horario a partir de cada Descanso del usuario (bypassea clean() usando bulk_create)
         nuevos_descansos = []
         for d in todos_los_descansos:
-            # Jornada solo para fines visuales/orden (no afecta bloqueo)
             if d.hora_inicio < _time(13, 30):
                 jornada = "Mañana"
             elif d.hora_inicio < _time(18, 15):
@@ -1059,10 +1041,9 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             ))
 
         if nuevos_descansos:
-            Horario.objects.bulk_create(nuevos_descansos)  # no ejecuta clean(), así que no choca con validaciones de jornada
-            todos_los_horarios.extend(nuevos_descansos)
-        # ==== FIN materialización de DESCANSOS ====
+            Horario.objects.bulk_create(nuevos_descansos)
 
+        # === Mensajes finales ===
         if errores:
             for e in errores:
                 messages.warning(request, e)
@@ -1070,8 +1051,6 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             messages.success(request, "¡Horarios generados exitosamente!")
 
         return redirect("..")
-
-
 
 
 admin.site.register(Horario, HorarioAdmin)
