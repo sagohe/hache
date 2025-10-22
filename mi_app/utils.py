@@ -359,10 +359,21 @@ def obtener_asignatura_descanso(institucion):
     return asig
 
 
-def obtener_docente_placeholder():
+def obtener_docente_placeholder(institucion=None):
     """Obtiene o crea un docente genérico para descansos."""
-    from .models import Docente
-    docente, _ = Docente.objects.get_or_create(nombre="SIN DOCENTE")
+    from .models import Docente, Institucion
+
+    if institucion is None:
+        institucion = Institucion.objects.first()  # usa la primera si no se pasa una
+    
+    if not institucion:
+        raise ValueError("No hay institución disponible para crear el docente genérico.")
+    
+    docente, _ = Docente.objects.get_or_create(
+        nombre="SIN DOCENTE",
+        institucion=institucion,
+        defaults={}
+    )
     return docente
 
 
