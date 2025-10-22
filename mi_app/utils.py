@@ -118,12 +118,10 @@ def asignar_horario_automatico(
     con_motivo=False
 ):
     """
-    Versión optimizada:
-    - Agrupa horarios por docente/día/semestre para evitar bucles repetidos.
-    - Usa estructuras en memoria (diccionarios) para consultas O(1).
-    - Misma lógica y resultados.
+    Reparte cada asignatura en UN SOLO día por semana.
+    El día se elige entre los disponibles de la carrera,
+    buscando balancear la carga semanal entre días.
     """
-
     def _ret(ok, motivo=""):
         return (ok, motivo) if con_motivo else ok
 
@@ -181,7 +179,7 @@ def asignar_horario_automatico(
     overlaps = lambda a1, a2, b1, b2: a1 < b2 and b1 < a2
 
     # ==================================================
-    # INDEXACIÓN EN MEMORIA (OPTIMIZACIÓN MAYOR)
+    # INDEXACIÓN EN MEMORIA
     # ==================================================
     horarios_por_dia = {}
     horarios_docente = []
@@ -200,9 +198,21 @@ def asignar_horario_automatico(
         descansos_por_dia.setdefault(d.dia_id, []).append(d)
 
     # ==================================================
-    # LÓGICA PRINCIPAL (idéntica pero más rápida)
+    # ELECCIÓN DEL DÍA BALANCEADO (nuevo)
     # ==================================================
-    for dia in dias_validos:
+    # Contar cuántas asignaturas ya hay por día (para balancear)
+    carga_por_dia = {dia.id: 0 for dia in dias_validos}
+    for h in horarios:
+        if h.asignatura.semestre == semestre:
+            carga_por_dia[h.dia.id] = carga_por_dia.get(h.dia.id, 0) + 1
+
+    # Ordenar los días por menor carga actual
+    dias_ordenados = sorted(dias_validos, key=lambda d: carga_por_dia.get(d.id, 0))
+
+    # ==================================================
+    # Intentar asignar solo UN día
+    # ==================================================
+    for dia in dias_ordenados:
         dia_id = dia.id
         ds_dia = descansos_por_dia.get(dia_id, [])
         horarios_dia = horarios_por_dia.get(dia_id, [])
@@ -216,8 +226,6 @@ def asignar_horario_automatico(
 
         while current < fin_dt and restante > 0:
             next_dt = min(current + paso, fin_dt)
-
-            # comprobar descanso
             descanso_cruzado = next((d for d in ds_dia if overlaps(
                 current, next_dt,
                 datetime.combine(current.date(), d.hora_inicio),
@@ -256,13 +264,15 @@ def asignar_horario_automatico(
                         seg_aula = aula
                         break
                 if not seg_inicio:
-                    # interrupción no descanso: descartar día
-                    break
+                    current += paso
+                    continue
+
             current = next_dt
 
-        if restante == 0 and segmentos_dia:
+        # si se completó este día
+        if restante <= 0 and segmentos_dia:
             Horario.objects.bulk_create(segmentos_dia)
             horarios.extend(segmentos_dia)
-            return _ret(True, "")
+            return _ret(True, f"Asignada en {dia.nombre}")
 
-    return _ret(False, f"No se encontró un día con hueco suficiente para {minutos_semana} minutos")
+    return _ret(False, f"No se encontró hueco suficiente en ningún día para {minutos_semana} minutos")
