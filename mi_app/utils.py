@@ -2,10 +2,10 @@ from datetime import datetime, timedelta, time
 from django.core.exceptions import ObjectDoesNotExist
 from .models import NoDisponibilidad, Horario, Aula, Descanso
 
-# ==========================================================
-# OPTIMIZACIÓN SEGURA: se mantienen resultados exactos
-# ==========================================================
 
+# ==========================================================
+# BLOQUES DE JORNADA
+# ==========================================================
 def obtener_bloques_por_jornada(jornada):
     return {
         'Mañana': (time(7, 30), time(12, 50)),
@@ -15,7 +15,7 @@ def obtener_bloques_por_jornada(jornada):
 
 
 # ==========================================================
-# CÁLCULO DE MINUTOS POR SEMANA (sin cambios funcionales)
+# CÁLCULO DE MINUTOS POR SEMANA (igual)
 # ==========================================================
 def calcular_mps(asignatura):
     try:
@@ -33,9 +33,7 @@ def calcular_mps(asignatura):
     minutos_totales = ht * dh
     mps = minutos_totales / ss
 
-    entero = abs(mps - round(mps)) < 1e-9
-    exacto = entero and int(round(mps)) % 15 == 0 and int(round(mps)) >= 60
-
+    exacto = abs(mps - round(mps)) < 1e-9 and int(round(mps)) % 15 == 0 and int(round(mps)) >= 60
     bloques_red = int(mps / 15.0 + 0.5)
     mps_aj = max(60, bloques_red * 15)
 
@@ -58,9 +56,8 @@ def calcular_mps(asignatura):
 
 
 # ==========================================================
-# FUNCIONES DE CHEQUEO EN MEMORIA (optimizadas)
+# FUNCIONES DE CHEQUEO EN MEMORIA
 # ==========================================================
-
 def hay_descanso_mem(dia, hora_inicio, hora_fin, descansos_por_dia):
     for d in descansos_por_dia:
         if d.hora_inicio < hora_fin and d.hora_fin > hora_inicio:
@@ -105,9 +102,8 @@ def puede_asignar_horario_mem(docente, aula, asignatura, dia, jornada,
 
 
 # ==========================================================
-# FUNCIÓN PRINCIPAL: ASIGNAR HORARIO AUTOMÁTICO (optimizada)
+# FUNCIÓN PRINCIPAL
 # ==========================================================
-
 def asignar_horario_automatico(
     asignatura,
     horarios,
@@ -117,11 +113,6 @@ def asignar_horario_automatico(
     institucion=None,
     con_motivo=False
 ):
-    """
-    Reparte cada asignatura en UN SOLO día por semana.
-    El día se elige entre los disponibles de la carrera,
-    buscando balancear la carga semanal entre días.
-    """
     def _ret(ok, motivo=""):
         return (ok, motivo) if con_motivo else ok
 
@@ -178,9 +169,7 @@ def asignar_horario_automatico(
     paso = timedelta(minutes=15)
     overlaps = lambda a1, a2, b1, b2: a1 < b2 and b1 < a2
 
-    # ==================================================
-    # INDEXACIÓN EN MEMORIA
-    # ==================================================
+    # Indexación
     horarios_por_dia = {}
     horarios_docente = []
     horarios_semestre = []
@@ -197,21 +186,22 @@ def asignar_horario_automatico(
     for d in descansos:
         descansos_por_dia.setdefault(d.dia_id, []).append(d)
 
-    # ==================================================
-    # ELECCIÓN DEL DÍA BALANCEADO (nuevo)
-    # ==================================================
-    # Contar cuántas asignaturas ya hay por día (para balancear)
+    # =====================================
+    # Balanceo por carga
+    # =====================================
     carga_por_dia = {dia.id: 0 for dia in dias_validos}
     for h in horarios:
-        if h.asignatura.semestre == semestre:
-            carga_por_dia[h.dia.id] = carga_por_dia.get(h.dia.id, 0) + 1
+        if h.asignatura.semestre == semestre and h.dia.id in carga_por_dia:
+            carga_por_dia[h.dia.id] += 1
 
-    # Ordenar los días por menor carga actual
-    dias_ordenados = sorted(dias_validos, key=lambda d: carga_por_dia.get(d.id, 0))
+    dias_ordenados = sorted(dias_validos, key=lambda d: (carga_por_dia.get(d.id, 0), d.orden))
+    if dias_ordenados:
+        offset = (getattr(asignatura, 'id', 0) or 0) % len(dias_ordenados)
+        dias_ordenados = dias_ordenados[offset:] + dias_ordenados[:offset]
 
-    # ==================================================
-    # Intentar asignar solo UN día
-    # ==================================================
+    # =====================================
+    # Intentar solo UN día (pero usar huecos reales)
+    # =====================================
     for dia in dias_ordenados:
         dia_id = dia.id
         ds_dia = descansos_por_dia.get(dia_id, [])
@@ -226,12 +216,16 @@ def asignar_horario_automatico(
 
         while current < fin_dt and restante > 0:
             next_dt = min(current + paso, fin_dt)
-            descanso_cruzado = next((d for d in ds_dia if overlaps(
-                current, next_dt,
-                datetime.combine(current.date(), d.hora_inicio),
-                datetime.combine(current.date(), d.hora_fin)
-            )), None)
+            descanso_cruzado = next(
+                (d for d in ds_dia if overlaps(
+                    current, next_dt,
+                    datetime.combine(current.date(), d.hora_inicio),
+                    datetime.combine(current.date(), d.hora_fin)
+                )),
+                None
+            )
 
+            # Si hay descanso → cortar bloque, saltar y seguir
             if descanso_cruzado:
                 if seg_inicio:
                     dur = int((datetime.combine(current.date(), descanso_cruzado.hora_inicio) - seg_inicio).total_seconds() // 60)
@@ -248,10 +242,11 @@ def asignar_horario_automatico(
                         restante -= dur
                     seg_inicio = None
                     seg_aula = None
+                # Aquí el FIX: saltamos el descanso y seguimos buscando luego
                 current = datetime.combine(current.date(), descanso_cruzado.hora_fin)
                 continue
 
-            # buscar aula disponible
+            # Buscar aula libre si no hay bloque abierto
             if not seg_inicio:
                 for aula in ([aula_prefijada] if aula_prefijada else aulas):
                     if puede_asignar_horario_mem(
@@ -263,11 +258,25 @@ def asignar_horario_automatico(
                         seg_inicio = current
                         seg_aula = aula
                         break
-                if not seg_inicio:
-                    current += paso
-                    continue
+                current += paso
+                continue
 
             current = next_dt
+
+        # Al salir del día, si hay bloque abierto sin cerrar
+        if seg_inicio and restante > 0:
+            dur = int((fin_dt - seg_inicio).total_seconds() // 60)
+            if dur > 0:
+                if dur > restante:
+                    dur = restante
+                segmentos_dia.append(Horario(
+                    usuario=usuario, institucion=institucion,
+                    asignatura=asignatura, docente=docente,
+                    aula=seg_aula, dia=dia, jornada=jornada,
+                    hora_inicio=seg_inicio.time(),
+                    hora_fin=(seg_inicio + timedelta(minutes=dur)).time()
+                ))
+                restante -= dur
 
         # si se completó este día
         if restante <= 0 and segmentos_dia:
