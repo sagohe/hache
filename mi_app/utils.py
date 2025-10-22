@@ -111,8 +111,16 @@ def asignar_horario_automatico(
     descansos=None,
     usuario=None,
     institucion=None,
+     docentes_precargados=None,
     con_motivo=False
 ):
+    
+    docente = None
+    if docentes_precargados:
+        docente = docentes_precargados[0]
+    elif asignatura.docentes.exists():
+        docente = asignatura.docentes.first()
+
     def _ret(ok, motivo=""):
         return (ok, motivo) if con_motivo else ok
 

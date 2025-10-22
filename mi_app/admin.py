@@ -10,7 +10,15 @@ from django import forms
 from datetime import time as _time
 from django.db.models.functions import Coalesce
 from django.db import IntegrityError, transaction
-from .utils import calcular_mps
+from .utils import (
+    asignar_horario_automatico,
+    calcular_mps,
+    obtener_institucion,
+    obtener_asignatura_descanso,
+    obtener_docente_placeholder,
+    obtener_aula_placeholder,
+    obtener_orden_dias,
+)
 from django.template.response import TemplateResponse
 from .models import (
     Institucion, PerfilUsuario,
@@ -808,17 +816,21 @@ class CarreraFilter(admin.SimpleListFilter):
 
 
 # ==========================
-# Horario (aislado por institucion + usuario) + botón “Generar”
+# ADMIN DE HORARIOS
 # ==========================
 class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
-    list_display = ("dia", "get_carrera", "get_semestre", "jornada", "col_actividad", "col_docente", "col_aula", "hora_inicio", "hora_fin")
+    list_display = (
+        "dia", "get_carrera", "get_semestre", "jornada",
+        "col_actividad", "col_docente", "col_aula",
+        "hora_inicio", "hora_fin"
+    )
     list_filter = (CarreraFilter, "asignatura__semestre", "jornada", "dia")
     search_fields = ("asignatura__nombre", "docente__nombre", "aula__nombre")
     change_list_template = 'admin/mi_app/horarios_change_list.html'
 
+    # ========= CAMPOS EXTRA ==========
     @admin.display(description="Carrera", ordering='asignatura__semestre__carrera__nombre')
     def get_carrera(self, obj):
-        # Para DESCANSO no mostramos carrera
         if getattr(obj.asignatura, "nombre", "") == "DESCANSO":
             return "—"
         sem = getattr(obj.asignatura, 'semestre', None)
@@ -827,24 +839,22 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
     @admin.display(description="Semestre", ordering='asignatura__semestre__numero')
     def get_semestre(self, obj):
-        # Para DESCANSO no mostramos semestre
         if getattr(obj.asignatura, "nombre", "") == "DESCANSO":
             return "—"
         sem = getattr(obj.asignatura, 'semestre', None)
         return getattr(sem, 'numero', '—')
 
+    # ========= CONSULTA BASE ==========
     def get_queryset(self, request):
-        qs = super().get_queryset(request)  # Mixin ya filtra por institucion
-        jornada_seleccionada = request.GET.get("jornada", None)
+        qs = super().get_queryset(request)
+        jornada_seleccionada = request.GET.get("jornada")
 
-        # Orden de días
         dia_ordenes = obtener_orden_dias(request)
         dia_order = Case(
             *[When(dia=dia_obj, then=orden) for dia_obj, orden in dia_ordenes.items()],
             default=99, output_field=IntegerField()
         )
 
-        # Evitar que NULLs en carrera/semestre manden al final
         qs = qs.annotate(
             dia_orden=dia_order,
             carrera_nombre=Coalesce(F('asignatura__semestre__carrera__nombre'), Value("")),
@@ -854,26 +864,13 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         if jornada_seleccionada:
             qs = qs.filter(jornada=jornada_seleccionada)
 
-        # Orden cronológico primero; luego detalles académicos
-        return qs.order_by(
-            "dia_orden",
-            "hora_inicio",
-            "jornada",
-            "carrera_nombre",
-            "sem_num",
-            "id",
-        )
+        return qs.order_by("dia_orden", "hora_inicio", "jornada", "carrera_nombre", "sem_num", "id")
 
-    # ====== helpers descanso ======
+    # ========= HELPERS ==========
     def _es_descanso(self, obj):
-        try:
-            return (obj.asignatura and obj.asignatura.nombre == "DESCANSO")
-        except Exception:
-            return False
+        return getattr(obj.asignatura, "nombre", "") == "DESCANSO"
 
     def _titulo_descanso(self, obj):
-        # Busca el Descanso que materializamos en este Horario (mismo usuario/inst, día y rango)
-        from .models import Descanso
         d = Descanso.objects.filter(
             institucion=obj.institucion,
             usuario=obj.usuario,
@@ -887,7 +884,6 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     def col_actividad(self, obj):
         if self._es_descanso(obj):
             titulo = self._titulo_descanso(obj)
-            # Badge centrado y bonito (incluye clase para estilizar fila en el template)
             return format_html(
                 '<div style="display:flex;justify-content:center;">'
                 '<span class="badge-descanso" '
@@ -896,7 +892,6 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 '</div>',
                 titulo
             )
-        # No es descanso → muestra Asignatura normal
         return str(obj.asignatura)
 
     @admin.display(description="Docente")
@@ -907,24 +902,21 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     def col_aula(self, obj):
         return "—" if self._es_descanso(obj) else (obj.aula.nombre if obj.aula_id else "—")
 
-    # ====== form/save ======
+    # ========= FORM / SAVE ==========
     def get_form(self, request, obj=None, **kwargs):
-        # Oculta también 'usuario'; lo llenamos en save_model
         form = super().get_form(request, obj, **kwargs)
         if 'usuario' in form.base_fields:
-            # FIX: usar HiddenInput (no existe AdminHiddenInput)
             form.base_fields['usuario'].widget = forms.HiddenInput()
         return form
 
     def save_model(self, request, obj, form, change):
-        # Asignar institucion y usuario automáticamente
         if getattr(obj, 'usuario_id', None) is None:
             obj.usuario = request.user
         if getattr(obj, 'institucion_id', None) is None and hasattr(request.user, 'perfil'):
             obj.institucion = request.user.perfil.institucion
         super().save_model(request, obj, form, change)
 
-    # ====== generar horarios ======
+    # ========= URL PERSONALIZADA ==========
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -932,10 +924,11 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         ]
         return custom_urls + urls
 
+    # ========= GENERAR HORARIOS ==========
     def generar_horarios(self, request):
         """Genera horarios en lotes pequeños para evitar OOM en Render"""
 
-        # 1) Resolver institución
+        # 1️⃣ Resolver institución
         if request.user.is_superuser:
             inst_id = request.GET.get("institucion")
             if inst_id:
@@ -961,10 +954,17 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
                 messages.error(request, "Tu usuario no tiene institución asociada.")
                 return redirect("..")
 
-        # 2) Limpiar horarios anteriores
+        # 2️⃣ Limpiar horarios anteriores
         Horario.objects.filter(usuario=request.user, institucion=inst).delete()
 
-        # 3) Cargar datos base
+        # 3️⃣ Cargar datos base
+        todos_los_horarios = list(Horario.objects.filter(institucion=inst))
+        todas_las_no_disponibilidades = list(NoDisponibilidad.objects.filter(institucion=inst))
+        todos_los_descansos = list(Descanso.objects.filter(institucion=inst, usuario=request.user))
+        asig_descanso = obtener_asignatura_descanso(inst)
+        docente_placeholder = obtener_docente_placeholder()
+        aula_placeholder = obtener_aula_placeholder()
+
         asignaturas = list(
             Asignatura.objects
             .select_related('semestre__carrera')
@@ -972,53 +972,39 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
             .filter(institucion=inst)
             .exclude(nombre="DESCANSO")
         )
+        docentes_por_asig = {a.id: list(a.docentes.all()) for a in asignaturas}
+
+        # 🧩 Dividir en lotes
+        def dividir_en_lotes(iterable, tamano):
+            for i in range(0, len(iterable), tamano):
+                yield iterable[i:i + tamano]
 
         errores = []
-        todos_los_horarios = []
-        todas_las_no_disponibilidades = list(
-            NoDisponibilidad.objects.filter(institucion=inst).select_related('docente')
-        )
-        todos_los_descansos = list(
-            Descanso.objects.filter(institucion=inst, usuario=request.user)
-        )
 
-        # === Función auxiliar ===
-        def dividir_en_lotes(lista, tamano):
-            for i in range(0, len(lista), tamano):
-                yield lista[i:i+tamano]
+        # 🧠 Procesar por lotes
+        def procesar_lote(lote):
+            for asignatura in lote:
+                docentes_precargados = docentes_por_asig.get(asignatura.id, [])
+                ok, motivo = asignar_horario_automatico(
+                    asignatura=asignatura,
+                    horarios=todos_los_horarios,
+                    no_disponibilidades=todas_las_no_disponibilidades,
+                    descansos=todos_los_descansos,
+                    usuario=request.user,
+                    institucion=inst,
+                    docentes_precargados=docentes_precargados,
+                    con_motivo=True,
+                )
+                if not ok:
+                    errores.append(f"{asignatura.nombre} → {motivo}")
 
-        # === Procesamiento por lotes ===
-        for lote in dividir_en_lotes(asignaturas, 20):
+        for lote in dividir_en_lotes(asignaturas, 10):
             with transaction.atomic():
-                for asignatura in lote:
-                    ok, motivo = asignar_horario_automatico(
-                        asignatura=asignatura,
-                        horarios=todos_los_horarios,
-                        no_disponibilidades=todas_las_no_disponibilidades,
-                        descansos=todos_los_descansos,
-                        usuario=request.user,
-                        institucion=inst,
-                        con_motivo=True,
-                    )
-                    if not ok:
-                        errores.append(f"{asignatura.nombre} → {motivo}")
+                procesar_lote(lote)
             gc.collect()
-            time.sleep(0.2)
+            time.sleep(0.3)
 
-        # ==== Materializar DESCANSOS ====
-        asig_descanso, _ = Asignatura.objects.get_or_create(
-            institucion=inst,
-            nombre="DESCANSO",
-            defaults={"horas_totales": 0, "semanas": 16}
-        )
-
-        aula_placeholder, _ = Aula.objects.get_or_create(institucion=inst, nombre="—")
-        docente_placeholder, _ = Docente.objects.get_or_create(
-            institucion=inst,
-            correo="placeholder@hache.local",
-            defaults={"nombre": "—"},
-        )
-
+        # 🕒 Crear descansos materializados
         nuevos_descansos = []
         for d in todos_los_descansos:
             if d.hora_inicio < _time(13, 30):
@@ -1042,8 +1028,9 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
 
         if nuevos_descansos:
             Horario.objects.bulk_create(nuevos_descansos)
+            todos_los_horarios.extend(nuevos_descansos)
 
-        # === Mensajes finales ===
+        # ✅ Mensajes finales
         if errores:
             for e in errores:
                 messages.warning(request, e)
@@ -1053,11 +1040,14 @@ class HorarioAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
         return redirect("..")
 
 
+# ==========================
+# REGISTRO ADMIN
+# ==========================
 admin.site.register(Horario, HorarioAdmin)
 
 
 # ==========================
-# User / Group SOLO superuser
+# USER / GROUP SOLO SUPERUSER
 # ==========================
 class CustomUserAdmin(UserAdmin):
     def has_module_permission(self, request):
@@ -1079,14 +1069,15 @@ class CustomGroupAdmin(GroupAdmin):
         return {'add': False, 'change': False, 'delete': False, 'view': False}
 
 
-# Reemplazar con nuestras versiones
 try:
     admin.site.unregister(User)
 except admin.sites.NotRegistered:
     pass
+
 try:
     admin.site.unregister(Group)
 except admin.sites.NotRegistered:
     pass
+
 admin.site.register(User, CustomUserAdmin)
 admin.site.register(Group, CustomGroupAdmin)
