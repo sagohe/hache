@@ -347,10 +347,16 @@ def obtener_institucion(usuario):
         pass
     return None
 
-
-def obtener_asignatura_descanso(institucion):
+def obtener_asignatura_descanso(institucion=None):
     """Obtiene o crea una asignatura especial llamada DESCANSO."""
-    from .models import Asignatura
+    from .models import Asignatura, Institucion
+
+    if institucion is None:
+        institucion = Institucion.objects.first()
+
+    if not institucion:
+        raise ValueError("No hay institución disponible para crear la asignatura DESCANSO.")
+
     asig, _ = Asignatura.objects.get_or_create(
         institucion=institucion,
         nombre="DESCANSO",
@@ -377,10 +383,21 @@ def obtener_docente_placeholder(institucion=None):
     return docente
 
 
-def obtener_aula_placeholder():
+def obtener_aula_placeholder(institucion=None):
     """Obtiene o crea un aula genérica para descansos."""
-    from .models import Aula
-    aula, _ = Aula.objects.get_or_create(nombre="SIN AULA")
+    from .models import Aula, Institucion
+
+    if institucion is None:
+        institucion = Institucion.objects.first()
+
+    if not institucion:
+        raise ValueError("No hay institución disponible para crear el aula genérica.")
+
+    aula, _ = Aula.objects.get_or_create(
+        nombre="SIN AULA",
+        institucion=institucion,
+        defaults={}
+    )
     return aula
 
 
