@@ -79,7 +79,7 @@ def generar_horarios_view(request, admin_instance):
     # si deseas, puedes convertir a lista pequeña; pero iterator() ahorra memoria
     def dividir_en_lotes_iter(qs, tamano):
         buf = []
-        for a in qs.iterator():
+        for a in qs.iterator(chunk_size=50):
             buf.append(a)
             if len(buf) >= tamano:
                 yield buf
