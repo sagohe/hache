@@ -1,7 +1,8 @@
 # utils.py
 from datetime import datetime, timedelta, time
 from django.core.exceptions import ObjectDoesNotExist
-from .models import NoDisponibilidad, Horario, Aula, Descanso
+from .models import NoDisponibilidad, Horario, Aula, Descanso, Institucion
+from django.core.exceptions import ObjectDoesNotExist
 
 # BLOQUES DE JORNADA (sin cambios)
 def obtener_bloques_por_jornada(jornada):
@@ -333,3 +334,46 @@ def asignar_horario_automatico(
             return _ret(True, f"Asignada en {dia.nombre}")
 
     return _ret(False, f"No se encontró hueco suficiente en ningún día para {minutos_semana} minutos")
+
+
+def obtener_institucion(usuario):
+    """Devuelve la institución asociada al usuario."""
+    try:
+        if usuario.is_superuser:
+            return Institucion.objects.first()
+        if hasattr(usuario, "perfil") and usuario.perfil and usuario.perfil.institucion_id:
+            return usuario.perfil.institucion
+    except ObjectDoesNotExist:
+        pass
+    return None
+
+
+def obtener_asignatura_descanso(institucion):
+    """Obtiene o crea una asignatura especial llamada DESCANSO."""
+    from .models import Asignatura
+    asig, _ = Asignatura.objects.get_or_create(
+        institucion=institucion,
+        nombre="DESCANSO",
+        defaults={"horas_totales": 0, "semanas": 0}
+    )
+    return asig
+
+
+def obtener_docente_placeholder():
+    """Obtiene o crea un docente genérico para descansos."""
+    from .models import Docente
+    docente, _ = Docente.objects.get_or_create(nombre="SIN DOCENTE")
+    return docente
+
+
+def obtener_aula_placeholder():
+    """Obtiene o crea un aula genérica para descansos."""
+    from .models import Aula
+    aula, _ = Aula.objects.get_or_create(nombre="SIN AULA")
+    return aula
+
+
+def obtener_orden_dias():
+    """Devuelve los días ordenados por su campo 'orden'."""
+    from .models import DiaSemana
+    return list(DiaSemana.objects.order_by("orden"))

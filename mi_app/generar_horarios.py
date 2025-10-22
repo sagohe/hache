@@ -4,10 +4,14 @@ from datetime import time as _time
 from django.db import transaction
 from .utils import (
     asignar_horario_automatico,
+    calcular_mps,
+    obtener_institucion,
     obtener_asignatura_descanso,
     obtener_docente_placeholder,
     obtener_aula_placeholder,
+    obtener_orden_dias,
 )
+
 from .models import (
     Institucion, Docente, Asignatura, NoDisponibilidad, Aula,
     Horario, Descanso
