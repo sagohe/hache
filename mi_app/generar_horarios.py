@@ -1,27 +1,24 @@
-from django.contrib import admin, messages
+# generar_horarios.py
+from django.contrib import messages
 from datetime import time as _time
 from django.db import transaction
 from .utils import (
     asignar_horario_automatico,
-    calcular_mps,
-    obtener_institucion,
     obtener_asignatura_descanso,
     obtener_docente_placeholder,
     obtener_aula_placeholder,
-    obtener_orden_dias,
 )
 from .models import (
-    Institucion, PerfilUsuario,
-    Docente, Asignatura, NoDisponibilidad, Aula,
-    CarreraUniversitaria, Semestre, DiaSemana, Horario, Descanso
+    Institucion, Docente, Asignatura, NoDisponibilidad, Aula,
+    Horario, Descanso
 )
-import gc,time
+import gc, time
 from django.shortcuts import redirect
 
 def generar_horarios_view(request, admin_instance):
     """Genera horarios en lotes pequeños para evitar OOM en Render"""
 
-    # 1️⃣ Resolver institución
+    # 1) Resolver institucion (misma lógica que tenías)
     if request.user.is_superuser:
         inst_id = request.GET.get("institucion")
         if inst_id:
@@ -47,57 +44,71 @@ def generar_horarios_view(request, admin_instance):
             messages.error(request, "Tu usuario no tiene institución asociada.")
             return redirect("..")
 
-    # 2️⃣ Limpiar horarios anteriores
+    # 2) Limpiar horarios anteriores del usuario+institucion
     Horario.objects.filter(usuario=request.user, institucion=inst).delete()
 
-    # 3️⃣ Cargar datos base
-    todos_los_horarios = list(Horario.objects.filter(institucion=inst))
+    # 3) Cargar datos base de forma ligera
+    # traemos horarios existentes COMO dicts ligeros (reduce memoria)
+    todos_los_horarios_qs = Horario.objects.filter(institucion=inst).select_related('aula','dia','asignatura','docente')
+    todos_los_horarios = [
+        {
+            'id': h.id,
+            'aula_id': h.aula_id,
+            'hora_inicio': h.hora_inicio,
+            'hora_fin': h.hora_fin,
+            'dia_id': h.dia_id,
+            'asignatura_id': h.asignatura_id,
+            'docente_id': h.docente_id,
+            'jornada': h.jornada,
+        } for h in todos_los_horarios_qs.iterator()
+    ]
+
     todas_las_no_disponibilidades = list(NoDisponibilidad.objects.filter(institucion=inst))
     todos_los_descansos = list(Descanso.objects.filter(institucion=inst, usuario=request.user))
+
     asig_descanso = obtener_asignatura_descanso(inst)
     docente_placeholder = obtener_docente_placeholder()
     aula_placeholder = obtener_aula_placeholder()
 
-    asignaturas = list(
-        Asignatura.objects
-        .select_related('semestre__carrera')
-        .prefetch_related('docentes')
-        .filter(institucion=inst)
-        .exclude(nombre="DESCANSO")
-        )
-    docentes_por_asig = {a.id: list(a.docentes.all()) for a in asignaturas}
-
-    # 🧩 Dividir en lotes
-    def dividir_en_lotes(iterable, tamano):
-        for i in range(0, len(iterable), tamano):
-            yield iterable[i:i + tamano]
+    # iterator() evita cargar todos los Asignatura en memoria de golpe
+    asignaturas_qs = Asignatura.objects.select_related('semestre__carrera').prefetch_related('docentes').filter(institucion=inst).exclude(nombre="DESCANSO")
+    # si deseas, puedes convertir a lista pequeña; pero iterator() ahorra memoria
+    def dividir_en_lotes_iter(qs, tamano):
+        buf = []
+        for a in qs.iterator():
+            buf.append(a)
+            if len(buf) >= tamano:
+                yield buf
+                buf = []
+        if buf:
+            yield buf
 
     errores = []
 
-    # 🧠 Procesar por lotes
-    def procesar_lote(lote):
-        for asignatura in lote:
-            docentes_precargados = docentes_por_asig.get(asignatura.id, [])
-            ok, motivo = asignar_horario_automatico(
-                asignatura=asignatura,
-                horarios=todos_los_horarios,
-                no_disponibilidades=todas_las_no_disponibilidades,
-                descansos=todos_los_descansos,
-                usuario=request.user,
-                institucion=inst,
-                docentes_precargados=docentes_precargados,
-                con_motivo=True,
-            )
-            if not ok:
-                errores.append(f"{asignatura.nombre} → {motivo}")
-
-    for lote in dividir_en_lotes(asignaturas, 10):
+    # Procesar lotes pequeños (10 por lote)
+    for lote in dividir_en_lotes_iter(asignaturas_qs, 10):
         with transaction.atomic():
-            procesar_lote(lote)
+            # Pre-extraer docentes de este lote (prefetch cache ya presente)
+            docentes_por_asig = {a.id: list(a.docentes.all()) for a in lote}
+            for asignatura in lote:
+                docentes_precargados = docentes_por_asig.get(asignatura.id, [])
+                ok, motivo = asignar_horario_automatico(
+                    asignatura=asignatura,
+                    horarios=todos_los_horarios,
+                    no_disponibilidades=todas_las_no_disponibilidades,
+                    descansos=todos_los_descansos,
+                    usuario=request.user,
+                    institucion=inst,
+                    docentes_precargados=docentes_precargados,
+                    con_motivo=True,
+                )
+                if not ok:
+                    errores.append(f"{asignatura.nombre} → {motivo}")
+        # liberamos referencias y CPU
         gc.collect()
-        time.sleep(0.3)
+        time.sleep(0.25)
 
-    # 🕒 Crear descansos materializados
+    # Crear descansos materializados (igual que antes)
     nuevos_descansos = []
     for d in todos_los_descansos:
         if d.hora_inicio < _time(13, 30):
@@ -121,9 +132,8 @@ def generar_horarios_view(request, admin_instance):
 
     if nuevos_descansos:
         Horario.objects.bulk_create(nuevos_descansos)
-        todos_los_horarios.extend(nuevos_descansos)
 
-    # ✅ Mensajes finales
+    # Mensajes finales
     if errores:
         for e in errores:
             messages.warning(request, e)
@@ -131,5 +141,3 @@ def generar_horarios_view(request, admin_instance):
         messages.success(request, "¡Horarios generados exitosamente!")
 
     return redirect("..")
-
-
