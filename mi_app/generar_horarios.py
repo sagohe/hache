@@ -54,7 +54,7 @@ def generar_horarios_view(request, admin_instance):
 
     # 3️⃣ Si Celery está activo, ejecutar en segundo plano
     try:
-        from celery import current_app
+        from mi_proyecto.celery import current_app
         if current_app.control.inspect().active():
             generar_horarios_task.delay(request.user.id, inst.id)
             messages.success(request, "Generación de horarios enviada a Celery. Se procesará en segundo plano.")
