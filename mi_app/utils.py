@@ -89,7 +89,6 @@ def puede_asignar_horario_mem(docente, aula, asignatura, dia, jornada,
         and not hay_descanso_mem(dia, hora_inicio, hora_fin, descansos_por_dia)
     )
 
-# FUNCIÓN PRINCIPAL: ahora usa datos ligeros en memoria (diccionarios)
 def asignar_horario_automatico(
     asignatura,
     horarios,
@@ -101,26 +100,19 @@ def asignar_horario_automatico(
     con_motivo=False
 ):
     """
-    Versión optimizada:
-     - Usa docentes precargados si están disponibles.
-     - Revisa TODOS los días válidos antes de concluir que no hay espacio.
-     - Mantiene una sola jornada por semana.
-     - Evita consultas y operaciones pesadas.
+    Genera horarios automáticos distribuyendo la asignatura en varios días si es necesario.
+    Usa la misma estructura de tu versión anterior, pero con balance real por días.
     """
-
     def _ret(ok, motivo=""):
         return (ok, motivo) if con_motivo else ok
 
-    # === 1. Docente ===
+    # === Seleccionar docente ===
     docente = None
     if docentes_precargados and len(docentes_precargados) > 0:
         docente = docentes_precargados[0]
     else:
         docente_qs = getattr(asignatura, '_prefetched_objects_cache', {}).get('docentes')
-        if docente_qs is not None and len(docente_qs) > 0:
-            docente = docente_qs[0]
-        else:
-            docente = asignatura.docentes.first()
+        docente = docente_qs[0] if docente_qs and len(docente_qs) > 0 else asignatura.docentes.first()
 
     if not docente:
         return _ret(False, "Asignatura sin docente")
@@ -129,13 +121,14 @@ def asignar_horario_automatico(
     jornada = asignatura.jornada
     semestre = asignatura.semestre
     if not semestre:
-        return _ret(False, "Sin semestre asociado")
+        return _ret(False, "Sin semestre")
 
     carrera = semestre.carrera
     dias_validos = list(carrera.dias_clase.all().order_by('orden'))
     if not dias_validos:
-        return _ret(False, "Carrera sin días de clase definidos")
+        return _ret(False, "Carrera sin días de clase")
 
+    # === Duración hora institucional ===
     try:
         inst = asignatura.institucion
         dur_hora = getattr(inst, "duracion_hora_minutos", 45)
@@ -145,11 +138,11 @@ def asignar_horario_automatico(
     horas_totales = getattr(asignatura, "horas_totales", 0) or 0
     semanas = getattr(asignatura, "semanas", 0) or 0
     if horas_totales <= 0 or semanas <= 0:
-        return _ret(False, "Datos de horas o semanas inválidos")
+        return _ret(False, "Horas totales o semanas inválidas")
 
+    # === Minutos a programar ===
     minutos_semana = max(60, int(round((horas_totales * dur_hora / semanas) / 15.0 + 0.5) * 15))
 
-    # === 2. Rangos por jornada ===
     rangos_jornada = {
         'Mañana': (time(7, 30), time(12, 50)),
         'Tarde': (time(13, 30), time(18, 15)),
@@ -159,22 +152,22 @@ def asignar_horario_automatico(
         return _ret(False, f"Jornada inválida: {jornada}")
     inicio_jornada, fin_jornada = rangos_jornada[jornada]
 
-    # === 3. Aulas ===
+    # === Aulas disponibles ===
     aulas_qs = Aula.objects.all()
     if institucion:
         aulas_qs = aulas_qs.filter(institucion=institucion)
     elif usuario and hasattr(Aula, "usuario_id"):
         aulas_qs = aulas_qs.filter(usuario=usuario)
     aulas = list(aulas_qs)
-    aula_prefijada = asignatura.aula if getattr(asignatura, "aula", None) in aulas else None
 
+    aula_prefijada = asignatura.aula if getattr(asignatura, "aula", None) in aulas else None
     if not aulas and not aula_prefijada:
         return _ret(False, "No hay aulas disponibles")
 
-    # === 4. Datos base y estructuras livianas ===
     paso = timedelta(minutes=15)
     overlaps = lambda a1, a2, b1, b2: a1 < b2 and b1 < a2
 
+    # === Convertir horarios en formato ligero ===
     if horarios and not isinstance(horarios[0], dict):
         horarios_ligeros = [{
             'id': h.id,
@@ -185,7 +178,6 @@ def asignar_horario_automatico(
             'asignatura_id': getattr(h.asignatura, 'id', None),
             'docente_id': getattr(h.docente, 'id', None),
             'jornada': h.jornada,
-            'semestre_id': getattr(getattr(h.asignatura, "semestre", None), "id", None),
         } for h in horarios]
     else:
         horarios_ligeros = horarios[:] if horarios else []
@@ -194,33 +186,27 @@ def asignar_horario_automatico(
     for h in horarios_ligeros:
         horarios_por_dia.setdefault(h['dia_id'], []).append(h)
 
-    horarios_docente = [h for h in horarios_ligeros if h['docente_id'] == docente.id]
-    semestre_id = getattr(asignatura.semestre, "id", None)
-    horarios_semestre = [h for h in horarios_ligeros if h.get("semestre_id") == semestre_id]
-
     no_disp_docente = [nd for nd in no_disponibilidades if nd.docente_id == docente.id]
     descansos_por_dia = {}
     for d in descansos:
         descansos_por_dia.setdefault(getattr(d, 'dia_id', None), []).append(d)
 
-    # === 5. Carga actual por día ===
-    carga_por_dia = {dia.id: 0 for dia in dias_validos}
-    for h in horarios_ligeros:
-        if h.get('dia_id') in carga_por_dia:
-            carga_por_dia[h['dia_id']] += 1
-
+    # === Balanceo de carga por día ===
+    carga_por_dia = {dia.id: len(horarios_por_dia.get(dia.id, [])) for dia in dias_validos}
     dias_ordenados = sorted(dias_validos, key=lambda d: (carga_por_dia.get(d.id, 0), d.orden))
-    if dias_ordenados:
-        offset = (getattr(asignatura, 'id', 0) or 0) % len(dias_ordenados)
-        dias_ordenados = dias_ordenados[offset:] + dias_ordenados[:offset]
 
-    # === 6. Intentar todos los días ===
+    # === Distribuir la asignatura en varios días ===
+    restante = minutos_semana
+    segmentos_totales = []
+
     for dia in dias_ordenados:
+        if restante <= 0:
+            break
+
         dia_id = dia.id
         ds_dia = descansos_por_dia.get(dia_id, [])
         horarios_dia = horarios_por_dia.get(dia_id, [])
 
-        restante = minutos_semana
         current = datetime.combine(datetime.today(), inicio_jornada)
         fin_dt = datetime.combine(datetime.today(), fin_jornada)
         seg_inicio = None
@@ -229,8 +215,6 @@ def asignar_horario_automatico(
 
         while current < fin_dt and restante > 0:
             next_dt = min(current + paso, fin_dt)
-
-            # Saltar si hay descanso
             descanso_cruzado = next(
                 (d for d in ds_dia if overlaps(
                     current, next_dt,
@@ -238,71 +222,88 @@ def asignar_horario_automatico(
                     datetime.combine(current.date(), d.hora_fin)
                 )), None
             )
-
             if descanso_cruzado:
-                if seg_inicio:
-                    dur = int((datetime.combine(current.date(), descanso_cruzado.hora_inicio) - seg_inicio).total_seconds() // 60)
-                    if dur > 0:
-                        dur = min(dur, restante)
-                        segmentos_dia.append({
-                            'usuario': usuario, 'institucion': institucion,
-                            'asignatura': asignatura, 'docente': docente,
-                            'aula': seg_aula, 'dia': dia, 'jornada': jornada,
-                            'hora_inicio': seg_inicio.time(), 'hora_fin': (seg_inicio + timedelta(minutes=dur)).time()
-                        })
-                        restante -= dur
-                    seg_inicio = None
-                    seg_aula = None
                 current = datetime.combine(current.date(), descanso_cruzado.hora_fin)
+                seg_inicio, seg_aula = None, None
                 continue
 
-            # Iniciar bloque nuevo
             if not seg_inicio:
                 for aula in ([aula_prefijada] if aula_prefijada else aulas):
                     if puede_asignar_horario_mem(
                         docente, aula, asignatura, dia, jornada,
                         current.time(), next_dt.time(),
-                        horarios_dia, horarios_docente, horarios_semestre,
-                        no_disp_docente, ds_dia
+                        horarios_dia, [], [], no_disp_docente, ds_dia
                     ):
                         seg_inicio = current
                         seg_aula = aula
                         break
                 current += paso
                 continue
+            else:
+                # Comprobar si sigue siendo válido
+                if not puede_asignar_horario_mem(
+                    docente, seg_aula, asignatura, dia, jornada,
+                    seg_inicio.time(), next_dt.time(),
+                    horarios_dia, [], [], no_disp_docente, ds_dia
+                ):
+                    dur = int((current - seg_inicio).total_seconds() // 60)
+                    if dur > 0:
+                        dur = min(dur, restante)
+                        segmentos_dia.append({
+                            'usuario': usuario,
+                            'institucion': institucion,
+                            'asignatura': asignatura,
+                            'docente': docente,
+                            'aula': seg_aula,
+                            'dia': dia,
+                            'jornada': jornada,
+                            'hora_inicio': seg_inicio.time(),
+                            'hora_fin': (seg_inicio + timedelta(minutes=dur)).time()
+                        })
+                        restante -= dur
+                    seg_inicio, seg_aula = None, None
+                current = next_dt
 
-            current = next_dt
-
-        # Cierra bloque final
+        # Cerrar último tramo del día
         if seg_inicio and restante > 0:
             dur = int((fin_dt - seg_inicio).total_seconds() // 60)
-            dur = min(dur, restante)
-            segmentos_dia.append({
-                'usuario': usuario, 'institucion': institucion,
-                'asignatura': asignatura, 'docente': docente,
-                'aula': seg_aula, 'dia': dia, 'jornada': jornada,
-                'hora_inicio': seg_inicio.time(), 'hora_fin': (seg_inicio + timedelta(minutes=dur)).time()
-            })
-            restante -= dur
+            if dur > 0:
+                dur = min(dur, restante)
+                segmentos_dia.append({
+                    'usuario': usuario,
+                    'institucion': institucion,
+                    'asignatura': asignatura,
+                    'docente': docente,
+                    'aula': seg_aula,
+                    'dia': dia,
+                    'jornada': jornada,
+                    'hora_inicio': seg_inicio.time(),
+                    'hora_fin': (seg_inicio + timedelta(minutes=dur)).time()
+                })
+                restante -= dur
 
-        # Si completó los minutos en este día
-        if restante <= 0 and segmentos_dia:
-            objs = [Horario(**seg) for seg in segmentos_dia]
-            Horario.objects.bulk_create(objs)
-            horarios.extend([{
-                'aula_id': o.aula.id if getattr(o, 'aula', None) else None,
-                'hora_inicio': o.hora_inicio,
-                'hora_fin': o.hora_fin,
-                'dia_id': o.dia.id,
-                'asignatura_id': o.asignatura.id,
-                'docente_id': o.docente.id,
-                'jornada': o.jornada,
-                'semestre_id': getattr(asignatura.semestre, "id", None),
-            } for o in objs])
-            return _ret(True, f"Asignada en {dia.nombre}")
+        # Agregar segmentos de este día
+        if segmentos_dia:
+            segmentos_totales.extend(segmentos_dia)
 
-    # Si no logró asignarse en ningún día
-    return _ret(False, f"No se encontró hueco suficiente en ningún día para {minutos_semana} minutos")
+    # === Crear todos los segmentos si se logró al menos uno ===
+    if segmentos_totales:
+        objs = [Horario(**seg) for seg in segmentos_totales]
+        Horario.objects.bulk_create(objs)
+        horarios.extend([{
+            'aula_id': o.aula.id if getattr(o, 'aula', None) else None,
+            'hora_inicio': o.hora_inicio,
+            'hora_fin': o.hora_fin,
+            'dia_id': o.dia.id,
+            'asignatura_id': o.asignatura.id,
+            'docente_id': o.docente.id,
+            'jornada': o.jornada,
+        } for o in objs])
+        if restante > 0:
+            return _ret(True, f"Asignada parcialmente ({minutos_semana - restante}/{minutos_semana} min)")
+        return _ret(True, f"Asignada completamente")
+
+    return _ret(False, f"No se encontró hueco suficiente para {minutos_semana} minutos")
 
 
 
