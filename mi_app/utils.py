@@ -209,10 +209,14 @@ def asignar_horario_automatico(
             # tratamos por asignatura_id igual)
             pass
     # Construir lista de horarios del mismo semestre
-    try:
-        ids_semestre = [h['asignatura_id'] for h in horarios_ligeros if h['asignatura_id'] is not None]
-        horarios_semestre = [h for h in horarios_ligeros if h['asignatura_id'] in ids_semestre]
-    except Exception:
+    
+    semestre_id = getattr(asignatura.semestre, "id", None)
+    if semestre_id:
+        horarios_semestre = [
+            h for h in horarios_ligeros
+            if h.get("semestre_id") == semestre_id
+        ]
+    else:
         horarios_semestre = []
 
     no_disp_docente = [nd for nd in no_disponibilidades if nd.docente_id == docente.id]

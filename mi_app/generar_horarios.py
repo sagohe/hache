@@ -64,7 +64,9 @@ def generar_horarios_view(request, admin_instance):
             'asignatura_id': h.asignatura_id,
             'docente_id': h.docente_id,
             'jornada': h.jornada,
-        } for h in todos_los_horarios_qs.iterator()
+            'semestre_id': getattr(h.asignatura.semestre, "id", None),
+        }
+        for h in todos_los_horarios_qs.iterator(chunk_size=50)
     ]
 
     todas_las_no_disponibilidades = list(NoDisponibilidad.objects.filter(institucion=inst))
