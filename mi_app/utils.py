@@ -231,7 +231,7 @@ def asignar_horario_automatico(
     carga_por_dia = {dia.id: len(horarios_por_dia.get(dia.id, [])) for dia in dias_validos}
     dias_ordenados = sorted(dias_validos, key=lambda d: (carga_por_dia.get(d.id, 0), d.orden))
 
-    # intentar distribuir la carga entre días hasta completar minutos_semana
+        # intentar distribuir la carga entre todos los días posibles
     restante = minutos_semana
     segmentos_totales = []
 
@@ -252,16 +252,8 @@ def asignar_horario_automatico(
         while current < fin_dt and restante > 0:
             next_dt = min(current + paso, fin_dt)
 
-            # descanso que cruce este intervalo
-            descanso_cruzado = next(
-                (d for d in ds_dia if overlaps(
-                    current, next_dt,
-                    datetime.combine(current.date(), d.hora_inicio),
-                    datetime.combine(current.date(), d.hora_fin)
-                )), None
-            )
-            if descanso_cruzado:
-                # cerramos segmento abierto si hubiera
+            # Verificar si hay un descanso en este rango
+            if any(d.hora_inicio < next_dt.time() and d.hora_fin > current.time() for d in ds_dia):
                 if seg_inicio:
                     dur = int((current - seg_inicio).total_seconds() // 60)
                     if dur > 0:
@@ -279,13 +271,11 @@ def asignar_horario_automatico(
                         })
                         restante -= take
                     seg_inicio, seg_aula = None, None
-                # saltar al fin del descanso
-                current = datetime.combine(current.date(), descanso_cruzado.hora_fin)
+                current = datetime.combine(current.date(), max(d.hora_fin for d in ds_dia))
                 continue
 
+            # Intentar abrir un nuevo bloque si no hay uno activo
             if not seg_inicio:
-                # intentar abrir segmento en alguna aula
-                opened = False
                 for aula in ([aula_prefijada] if aula_prefijada else aulas):
                     if puede_asignar_horario_mem(
                         docente_id, aula, asignatura, dia, jornada,
@@ -295,41 +285,38 @@ def asignar_horario_automatico(
                     ):
                         seg_inicio = current
                         seg_aula = aula
-                        opened = True
                         break
-                # avanzar al siguiente paso (si no abrimos, o aun queremos extender)
                 current += paso
                 continue
-            else:
-                # si ya hay segmento abierto, comprobamos si podemos continuar hasta next_dt
-                if not puede_asignar_horario_mem(
-                    docente_id, seg_aula, asignatura, dia, jornada,
-                    seg_inicio.time(), next_dt.time(),
-                    horarios_dia, horarios_docente, horarios_semestre,
-                    no_disp_docente, ds_dia
-                ):
-                    # no podemos extender; cerramos hasta 'current'
-                    dur = int((current - seg_inicio).total_seconds() // 60)
-                    if dur > 0:
-                        take = min(dur, restante)
-                        segmentos_dia.append({
-                            'usuario': usuario,
-                            'institucion': institucion,
-                            'asignatura': asignatura,
-                            'docente': docente,
-                            'aula': seg_aula,
-                            'dia': dia,
-                            'jornada': jornada,
-                            'hora_inicio': seg_inicio.time(),
-                            'hora_fin': (seg_inicio + timedelta(minutes=take)).time()
-                        })
-                        restante -= take
-                    seg_inicio, seg_aula = None, None
-                else:
-                    # podemos continuar; avanzamos
-                    current = next_dt
 
-        # cerrar segmento abierto al final de jornada
+            # Si ya hay bloque activo, comprobar si puede continuar
+            if puede_asignar_horario_mem(
+                docente_id, seg_aula, asignatura, dia, jornada,
+                seg_inicio.time(), next_dt.time(),
+                horarios_dia, horarios_docente, horarios_semestre,
+                no_disp_docente, ds_dia
+            ):
+                current = next_dt
+            else:
+                dur = int((current - seg_inicio).total_seconds() // 60)
+                if dur > 0:
+                    take = min(dur, restante)
+                    segmentos_dia.append({
+                        'usuario': usuario,
+                        'institucion': institucion,
+                        'asignatura': asignatura,
+                        'docente': docente,
+                        'aula': seg_aula,
+                        'dia': dia,
+                        'jornada': jornada,
+                        'hora_inicio': seg_inicio.time(),
+                        'hora_fin': (seg_inicio + timedelta(minutes=take)).time()
+                    })
+                    restante -= take
+                seg_inicio, seg_aula = None, None
+                current = next_dt
+
+        # Cerrar bloque si queda abierto
         if seg_inicio and restante > 0:
             dur = int((fin_dt - seg_inicio).total_seconds() // 60)
             if dur > 0:
@@ -347,8 +334,45 @@ def asignar_horario_automatico(
                 })
                 restante -= take
 
+        # Solo agregamos si realmente hay algo asignado en el día
         if segmentos_dia:
             segmentos_totales.extend(segmentos_dia)
+
+    # Si aún queda tiempo sin asignar, continuar probando otros días (no se detiene prematuramente)
+    if restante > 0 and len(segmentos_totales) > 0:
+        # Intento extra: reordenar días y repetir
+        for dia in reversed(dias_ordenados):
+            if restante <= 0:
+                break
+            dia_id = dia.id
+            horarios_dia = horarios_por_dia.get(dia_id, [])
+            ds_dia = descansos_por_dia.get(dia_id, [])
+            current = datetime.combine(datetime.today(), inicio_jornada)
+            fin_dt = datetime.combine(datetime.today(), fin_jornada)
+            while current < fin_dt and restante > 0:
+                next_dt = min(current + paso, fin_dt)
+                for aula in ([aula_prefijada] if aula_prefijada else aulas):
+                    if puede_asignar_horario_mem(
+                        docente_id, aula, asignatura, dia, jornada,
+                        current.time(), next_dt.time(),
+                        horarios_dia, horarios_docente, horarios_semestre,
+                        no_disp_docente, ds_dia
+                    ):
+                        take = min(15, restante)
+                        segmentos_totales.append({
+                            'usuario': usuario,
+                            'institucion': institucion,
+                            'asignatura': asignatura,
+                            'docente': docente,
+                            'aula': aula,
+                            'dia': dia,
+                            'jornada': jornada,
+                            'hora_inicio': current.time(),
+                            'hora_fin': (current + timedelta(minutes=take)).time()
+                        })
+                        restante -= take
+                current = next_dt
+
 
     # si conseguimos crear segmentos los persistimos
     if segmentos_totales:
