@@ -1,23 +1,28 @@
-import gc
-import time
+
+import time, gc, logging
 from datetime import time as _time
-from django.db import transaction
 from django.shortcuts import redirect
 from django.contrib import messages
-from .models import (
-    Institucion, Horario, NoDisponibilidad, Descanso, Asignatura
+from django.db import transaction
+from mi_app.models import (
+    Horario, NoDisponibilidad, Descanso,
+    Institucion, Asignatura
 )
-from .utils import (
-    asignar_horario_automatico,
-    obtener_asignatura_descanso,
-    obtener_docente_placeholder,
-    obtener_aula_placeholder,
+from mi_app.utils import (
+    obtener_asignatura_descanso, obtener_docente_placeholder,
+    obtener_aula_placeholder, asignar_horario_automatico
 )
+from mi_app.tasks import generar_horarios_task
+
+logger = logging.getLogger(__name__)
 
 def generar_horarios_view(request, admin_instance):
-    """Genera horarios en lotes pequeños para evitar OOM o timeouts en Render"""
+    """
+    Genera los horarios usando Celery si está disponible.
+    Si se ejecuta en entorno local (sin Redis/Celery), lo hace directamente en lotes.
+    """
 
-    # 1️⃣ Determinar institución (mantiene tu misma lógica original)
+    # 1️⃣ Resolver institución
     if request.user.is_superuser:
         inst_id = request.GET.get("institucion")
         if inst_id:
@@ -37,68 +42,74 @@ def generar_horarios_view(request, admin_instance):
                 messages.error(request, f"Superusuario: usa ?institucion=<id>. Opciones: {opciones}")
                 return redirect("..")
     else:
-        if hasattr(request.user, "perfil") and request.user.perfil and request.user.perfil.institucion_id:
-            inst = request.user.perfil.institucion
+        perfil = getattr(request.user, "perfil", None)
+        if perfil and perfil.institucion_id:
+            inst = perfil.institucion
         else:
             messages.error(request, "Tu usuario no tiene institución asociada.")
             return redirect("..")
 
-    # 2️⃣ Limpiar horarios previos del usuario + institución
+    # 2️⃣ Limpieza inicial
     Horario.objects.filter(usuario=request.user, institucion=inst).delete()
 
-    # 3️⃣ Cargar datos base de forma ligera
-    todos_los_horarios_qs = (
-        Horario.objects.filter(institucion=inst)
-        .select_related('aula', 'dia', 'asignatura', 'docente')
-    )
+    # 3️⃣ Si Celery está activo, ejecutar en segundo plano
+    try:
+        from celery import current_app
+        if current_app.control.inspect().active():
+            generar_horarios_task.delay(request.user.id, inst.id)
+            messages.success(request, "Generación de horarios enviada a Celery. Se procesará en segundo plano.")
+            return redirect("..")
+    except Exception as e:
+        logger.warning(f"Celery no disponible: {e}")
 
+    # 4️⃣ Si no hay Celery, ejecuta localmente (modo Render)
+    todos_los_horarios_qs = Horario.objects.filter(institucion=inst).select_related(
+        "aula", "dia", "asignatura", "docente"
+    )
     todos_los_horarios = [
         {
-            'id': h.id,
-            'aula_id': h.aula_id,
-            'hora_inicio': h.hora_inicio,
-            'hora_fin': h.hora_fin,
-            'dia_id': h.dia_id,
-            'asignatura_id': h.asignatura_id,
-            'docente_id': h.docente_id,
-            'jornada': h.jornada,
-            'semestre_id': getattr(h.asignatura.semestre, "id", None),
+            "id": h.id,
+            "aula_id": h.aula_id,
+            "hora_inicio": h.hora_inicio,
+            "hora_fin": h.hora_fin,
+            "dia_id": h.dia_id,
+            "asignatura_id": h.asignatura_id,
+            "docente_id": h.docente_id,
+            "jornada": h.jornada,
+            "semestre_id": getattr(h.asignatura.semestre, "id", None),
         }
-        for h in todos_los_horarios_qs.iterator(chunk_size=100)
+        for h in todos_los_horarios_qs.iterator(chunk_size=30)
     ]
 
-    todas_las_no_disponibilidades = list(NoDisponibilidad.objects.filter(institucion=inst))
+    todas_las_no_disp = list(NoDisponibilidad.objects.filter(institucion=inst))
     todos_los_descansos = list(Descanso.objects.filter(institucion=inst, usuario=request.user))
 
-    # 4️⃣ Objetos auxiliares (sin repetir consultas)
     asig_descanso = obtener_asignatura_descanso(inst)
-    docente_placeholder = obtener_docente_placeholder()
-    aula_placeholder = obtener_aula_placeholder()
+    docente_placeholder = obtener_docente_placeholder(inst)
+    aula_placeholder = obtener_aula_placeholder(inst)
 
-    # 5️⃣ Traer asignaturas (sin usar iterator + prefetch juntos)
     asignaturas_qs = (
-        Asignatura.objects
-        .select_related('semestre__carrera')
-        .prefetch_related('docentes')
+        Asignatura.objects.select_related("semestre__carrera")
+        .prefetch_related("docentes")
         .filter(institucion=inst)
         .exclude(nombre="DESCANSO")
+        .order_by("semestre__carrera__nombre", "semestre__numero", "nombre")
     )
 
-    def dividir_en_lotes(qs, tamano):
-        """Divide queryset en lotes pequeños para no agotar memoria"""
-        buffer = []
-        for asignatura in qs:  # sin iterator() aquí
-            buffer.append(asignatura)
-            if len(buffer) >= tamano:
-                yield buffer
-                buffer = []
-        if buffer:
-            yield buffer
+    def dividir_en_lotes_iter(qs, tamano):
+        buf = []
+        for a in qs.iterator(chunk_size=25):
+            buf.append(a)
+            if len(buf) >= tamano:
+                yield buf
+                buf = []
+        if buf:
+            yield buf
 
     errores = []
 
-    # 6️⃣ Procesar asignaturas en lotes de 10
-    for lote in dividir_en_lotes(asignaturas_qs, 10):
+    # 5️⃣ Procesar en lotes pequeños
+    for lote in dividir_en_lotes_iter(asignaturas_qs, 8):
         with transaction.atomic():
             docentes_por_asig = {a.id: list(a.docentes.all()) for a in lote}
             for asignatura in lote:
@@ -106,7 +117,7 @@ def generar_horarios_view(request, admin_instance):
                 ok, motivo = asignar_horario_automatico(
                     asignatura=asignatura,
                     horarios=todos_los_horarios,
-                    no_disponibilidades=todas_las_no_disponibilidades,
+                    no_disponibilidades=todas_las_no_disp,
                     descansos=todos_los_descansos,
                     usuario=request.user,
                     institucion=inst,
@@ -115,12 +126,10 @@ def generar_horarios_view(request, admin_instance):
                 )
                 if not ok:
                     errores.append(f"{asignatura.nombre} → {motivo}")
-
-        # Liberar memoria gradualmente
         gc.collect()
-        time.sleep(0.1)
+        time.sleep(0.3)
 
-    # 7️⃣ Crear descansos (igual que antes)
+    # 6️⃣ Crear descansos
     nuevos_descansos = []
     for d in todos_los_descansos:
         if d.hora_inicio < _time(13, 30):
@@ -143,15 +152,16 @@ def generar_horarios_view(request, admin_instance):
                 hora_fin=d.hora_fin,
             )
         )
-
     if nuevos_descansos:
-        Horario.objects.bulk_create(nuevos_descansos, batch_size=100)
+        Horario.objects.bulk_create(nuevos_descansos)
 
-    # 8️⃣ Mostrar mensajes finales
+    # 7️⃣ Mensaje final
     if errores:
+        if len(errores) > 20:
+            errores = errores[:20] + ["... (algunas asignaturas más sin espacio)"]
         for e in errores:
             messages.warning(request, e)
     else:
-        messages.success(request, "¡Horarios generados exitosamente!")
+        messages.success(request, "✅ ¡Horarios generados exitosamente!")
 
     return redirect("..")
